@@ -12,6 +12,8 @@ use PDO;
 
 class SearchTermsRepository
 {
+	private const SELECT_COLUMNS = 'SEARCH_TERMS_ID, WEBSITE, PAGE_NAME, PAGE_URL, SEARCH_TERMS';
+
 	private PDO $db;
 
 	public function __construct(?PDO $db = null)
@@ -27,23 +29,65 @@ class SearchTermsRepository
 	 */
 	public function findByWebsiteAndTerms(int $website, string $terms): array
 	{
-		$sql = 'SELECT SEARCH_TERMS_ID, WEBSITE, PAGE_NAME, PAGE_URL, SEARCH_TERMS
+		return $this->find([
+			'website' => $website,
+			'searchTerms' => $terms,
+		]);
+	}
+
+	/**
+	 * Flexible search used by admin maintenance and public pages.
+	 * If id is set, only the primary key is used (legacy getSearchTerms behavior).
+	 *
+	 * Supported keys: id, website, pageName, pageUrl, searchTerms, fuzzyPageName
+	 *
+	 * @return SearchTerms[]
+	 */
+	public function find(array $criteria = []): array
+	{
+		$id = isset($criteria['id']) ? (int) $criteria['id'] : 0;
+
+		if ($id > 0) {
+			$entity = $this->findById($id);
+			return $entity ? [$entity] : [];
+		}
+
+		$sql = 'SELECT ' . self::SELECT_COLUMNS . '
 		          FROM SEARCH_TERMS
-		         WHERE WEBSITE = :website
-		           AND SEARCH_TERMS LIKE :terms
-		         ORDER BY PAGE_NAME';
+		         WHERE 1 = 1';
+		$params = [];
+
+		if (!empty($criteria['website'])) {
+			$sql .= ' AND WEBSITE = :website';
+			$params[':website'] = (int) $criteria['website'];
+		}
+
+		if (!empty($criteria['pageName'])) {
+			if (!empty($criteria['fuzzyPageName'])) {
+				$sql .= ' AND PAGE_NAME LIKE :pageName';
+				$params[':pageName'] = '%' . $criteria['pageName'] . '%';
+			} else {
+				$sql .= ' AND PAGE_NAME = :pageName';
+				$params[':pageName'] = $criteria['pageName'];
+			}
+		}
+
+		if (!empty($criteria['pageUrl'])) {
+			$sql .= ' AND PAGE_URL LIKE :pageUrl';
+			$params[':pageUrl'] = '%' . $criteria['pageUrl'] . '%';
+		}
+
+		if (!empty($criteria['searchTerms'])) {
+			$sql .= ' AND SEARCH_TERMS LIKE :searchTerms';
+			$params[':searchTerms'] = '%' . $criteria['searchTerms'] . '%';
+		}
+
+		$sql .= ' ORDER BY PAGE_NAME';
 
 		$stmt = $this->db->prepare($sql);
-		$stmt->execute([
-			':website' => $website,
-			':terms' => '%' . $terms . '%',
-		]);
+		$stmt->execute($params);
 
-		$records = [];
-		while ($row = $stmt->fetch()) {
-			$records[] = SearchTerms::fromRow($row);
-		}
-		return $records;
+		return $this->hydrateAll($stmt);
 	}
 
 	/**
@@ -51,7 +95,7 @@ class SearchTermsRepository
 	 */
 	public function findById(int $id): ?SearchTerms
 	{
-		$sql = 'SELECT SEARCH_TERMS_ID, WEBSITE, PAGE_NAME, PAGE_URL, SEARCH_TERMS
+		$sql = 'SELECT ' . self::SELECT_COLUMNS . '
 		          FROM SEARCH_TERMS
 		         WHERE SEARCH_TERMS_ID = :id';
 
@@ -60,6 +104,18 @@ class SearchTermsRepository
 		$row = $stmt->fetch();
 
 		return $row ? SearchTerms::fromRow($row) : null;
+	}
+
+	/**
+	 * @return SearchTerms[]
+	 */
+	private function hydrateAll(\PDOStatement $stmt): array
+	{
+		$records = [];
+		while ($row = $stmt->fetch()) {
+			$records[] = SearchTerms::fromRow($row);
+		}
+		return $records;
 	}
 
 	/**
