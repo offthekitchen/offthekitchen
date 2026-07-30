@@ -1,0 +1,342 @@
+<?php
+/*
+*******************************************************************
+class_Tax_Category.php
+This PHP file defines the Tax Category object class
+NOTES
+Date        Change
+-------------------------------------------------------------
+2015-12-19	removed unneeded includes
+*******************************************************************
+*/	
+
+//include DB Class		
+include_once (CLASS_DIR . "/class_DB.php");
+
+//include Expense Class		
+include_once (CLASS_DIR . "/class_Expense.php");
+
+//Error Class
+include_once (CLASS_DIR . "/class_Error.php");
+
+class TaxCategory
+{
+
+	var $DB;
+	
+	//Tax Category Values
+	var $nTaxCategoryID = 0;
+	var $sTaxCategoryName = NULL;
+	var $dtLastUpdate = NULL;
+	var $bExpenseRelated = false;
+
+	var $bFuzzyNameSearch = FALSE;
+
+	/*****************
+	 * Object Arrays *
+	 *****************/
+	//Tax Categories
+	var $aTaxCategoryRecords = array();
+	//Tax Category Errors
+	var $aTaxCategoryErrors = array();
+	
+		
+	//Error variables
+	var $sErrorMessage = "";
+
+	//Constructor
+   function __construct() 
+   {
+		$this->DB = new Database();
+   }
+
+	/*
+	 ********************************************************************************
+	 * getTaxCategory()
+	 * 
+	 * This function retrieves Tax Category data based on data in the properites and
+	 *  returns an array of Tax Category Objects
+	 ********************************************************************************
+	*/
+	function getTaxCategory()
+	{
+	
+		$this->aTaxCategoryRecords = array();
+		
+		//Begin the SQL SELECT STATEMENT
+		$sql =	"SELECT  TAX_CATEGORY.* ";
+		$sql .=	" FROM  TAX_CATEGORY ";
+		$sql .=	" WHERE 1=1 ";
+	
+	
+		//Tax Category ID
+		if ($this->nTaxCategoryID > 0)
+		{
+			$sql .= " AND TAX_CATEGORY.TAX_CATEGORY_ID = {$this->nTaxCategoryID}";
+		}
+		else
+		{
+		
+			if (!empty($this->sTaxCategoryName))
+			{
+				if ($this->bFuzzyNameSearch)
+				{
+					$sql .= " AND TAX_CATEGORY.TAX_CATEGORY_NAME LIKE '%{$this->sTaxCategoryName}%'";
+				}
+				else
+				{
+					$sql .= " AND TAX_CATEGORY.TAX_CATEGORY_NAME = '{$this->sTaxCategoryName}'";
+				}
+			}
+			$sql .= " ORDER BY TAX_CATEGORY.TAX_CATEGORY_NAME";
+
+		}		
+
+//DEBUG
+//echo "SQL={$sql}<BR>";
+
+		//Open the DB
+		if (!$this->DB->openDB()) 
+		{
+			$this->sErrorMessage = "TXC001 - FAILED TO OPEN DB: {$this->DB->dbError}";
+			return FALSE;
+		}
+
+	
+		//Execute the SQL		
+		$result=mysqli_query($this->DB->dbConnection,$sql);
+	
+		//SQL Error
+		if (!$result) {
+
+			 $this->sErrorMessage = "TXC002 - " . mysqli_error($this->DB->dbConnection);
+			 $this->DB->closeDB();
+			 return FALSE;
+		}
+		else 
+		{
+			$iTaxCategoryCount = 0;
+
+			//If multiple rows are returned, then load them into the array of search results
+			while($row = mysqli_fetch_array($result))
+			{
+				$oNextTaxCategory = new TaxCategory();
+				
+				//Load each Tax Category into an Object
+				$this->loadTaxCategoryObject($oNextTaxCategory, $row);
+										
+				$this->aTaxCategoryRecords[$iTaxCategoryCount] = $oNextTaxCategory;
+
+				$iTaxCategoryCount++;
+				
+				
+			}
+			return TRUE;
+		}
+	}
+	
+	/*
+	 ********************************************************************************
+	 * insertTaxCategory()
+	 * 
+	 * This function inserts a Tax Category record on the DB
+	 ********************************************************************************
+	*/
+	function insertTaxCategory()
+	{
+		//Open the DB
+		if (!$this->DB->openDB()) 
+		{
+			$this->sErrorMessage = "TXC004 - FAILED TO OPEN DB: ";
+			return FALSE;
+		}
+			
+		$this->escapeSpecialChars();
+	
+		$sql =	" INSERT INTO TAX_CATEGORY";
+		$sql .= " (TAX_CATEGORY_NAME, LAST_UPDATE)";
+		$sql .= " VALUES (";
+		$sql .= "'{$this->sTaxCategoryName}',";	
+		$sql .= " NOW()";
+		$sql .= ")";	
+		
+//DEBUG
+//echo "SQL={$sql}<BR>";
+	
+		//Execute the SQL		
+		$result=mysqli_query($this->DB->dbConnection,$sql);
+	
+		//SQL Error
+		if (!$result) {
+
+			 $this->sErrorMessage = "TXC005 - " . mysqli_error($this->DB->dbConnection);
+			 return FALSE;
+		}
+		else 
+		{
+			$this->nTaxCategoryID = mysqli_insert_id($this->DB->dbConnection);
+ 
+			return TRUE;	
+		}
+		
+		if (!$this->DB->closeDB())
+		{
+			$this->sErrorMessage = "TXC006 -  FAILED TO CLOSE DB: ";
+			return FALSE;
+		}
+	
+	}
+
+	/*
+	 ********************************************************************************
+	 * updateTaxCategory()
+	 * 
+	 * This function inserts a Tax Category record on the DB
+	 ********************************************************************************
+	*/
+	function updateTaxCategory()
+	{
+
+		if($this->nTaxCategoryID > 0)
+		{	
+			//Open the DB
+			if (!$this->DB->openDB()) 
+			{
+				$this->sErrorMessage = "TXC007 - FAILED TO OPEN DB: ";
+				return FALSE;
+			}
+			
+			$this->escapeSpecialChars();
+
+			$sql =	" UPDATE TAX_CATEGORY ";
+			$sql .= " SET TAX_CATEGORY_NAME = '{$this->sTaxCategoryName}'";
+			$sql .= ", LAST_UPDATE = NOW()";
+			$sql .= " WHERE TAX_CATEGORY_ID = {$this->nTaxCategoryID}";
+			
+//DEBUG
+//echo "SQL={$sql}<BR>";
+
+			//Execute the SQL		
+			$result=mysqli_query($this->DB->dbConnection,$sql);
+	
+			//SQL Error
+			if (!$result) {	
+
+				 $this->sErrorMessage = "TXC008 - " . mysqli_error($this->DB->dbConnection);
+				 return FALSE;
+			}
+			else 
+			{	
+
+				return TRUE;	
+			}
+			
+			if (!$this->DB->closeDB())
+			{
+				$this->sErrorMessage = "TXC009 - FAILED TO CLOSE DB ";
+				return FALSE;
+			}
+		}
+		else
+		{
+				$this->sErrorMessage = "TXC010 - NO TAX_CATEGORY_ID SPECIFIED ";
+				return FALSE;
+		}
+	}
+
+	/*
+	 ********************************************************************************
+	 * deleteTaxCategory()
+	 * 
+	 * This function deletes a Tax Category record from the DB
+	 ********************************************************************************
+	*/
+	function deleteTaxCategory()
+	{
+	
+		//Look for Associated expenses
+		$oTaxCategoryExpenses = new Expense();
+		$oTaxCategoryExpenses->nTaxCategoryID = $this->nTaxCategoryID;
+		$nNumberOfTaxCategoryExpenses = $oTaxCategoryExpenses->getNumberOfExpenses();
+
+		if ($nNumberOfTaxCategoryExpenses == -1)
+		{
+			$this->sErrorMessage = "TXC003 - Failed to Retrieve Expenses for Tax Category: {$oTaxCategoryExpenses->sErrorMessage}";
+			return FALSE;
+		}
+		elseif ($nNumberOfTaxCategoryExpenses > 0)
+		{
+			$this->sErrorMessage = "TXC011 - Can not delete Tax Category because it has ";
+				$this->sErrorMessage .= "<A HREF='" . ADMIN_DIR . "/ExpenseMaintenance.php?TAX_CATEGORY_ID={$this->nTaxCategoryID}'>";		
+				$this->sErrorMessage .= $nNumberOfTaxCategoryExpenses . " expenses.</A>";
+			return FALSE;
+		}
+
+		//Open the DB
+		if (!$this->DB->openDB()) 
+		{
+			$this->sErrorMessage = "TXC012 - FAILED TO OPEN DB: " . mysqli_error($this->DB->dbConnection);
+			return FALSE;
+		}
+		
+	
+		$sql =	" DELETE FROM TAX_CATEGORY ";
+		$sql .= " WHERE TAX_CATEGORY_ID = {$this->nTaxCategoryID}";
+		
+//DEBUG
+//echo "SQL={$sql}<BR>";
+
+	
+		//Execute the SQL		
+		$result=mysqli_query($this->DB->dbConnection,$sql);
+	
+		//SQL Error
+		if (!$result) {
+
+			 $this->sErrorMessage = "TXC014 - Failed to Delete Tax Category " . mysqli_error($this->DB->dbConnection);
+			 return FALSE;
+		}
+		else 
+		{
+			return TRUE;	
+		}
+		
+		if (!$this->DB->closeDB())
+		{
+			$this->sErrorMessage = "TXC015 -  FAILED TO CLOSE DB: ";
+			return FALSE;
+		}
+	
+	}
+
+	/*
+	 ********************************************************************************
+	 * loadTaxCategoryObject()
+	 * This function loads a given row from the TAX_CATEGORY table into a Product object.  
+	 ********************************************************************************
+	*/
+	function loadTaxCategoryObject(&$oTaxCategory, &$row)
+	{
+		$oTaxCategory->nTaxCategoryID = $row['TAX_CATEGORY_ID'];			
+		$oTaxCategory->sTaxCategoryName = $row['TAX_CATEGORY_NAME'];	
+		$oTaxCategory->dtLastUpdate = $row['LAST_UPDATE'];			
+	}	
+
+	/*
+	 ********************************************************************************
+	 * escapeSpecialChars()
+	 * This function escapes any special characters in the objects properties
+	 * prior to a DB update.  The DB connection must be established prior to 
+	 * calling this function.  
+	 ********************************************************************************
+	*/
+	function escapeSpecialChars()
+	{
+		$this->sTaxCategoryName = mysqli_real_escape_string($this->DB->dbConnection,$this->sTaxCategoryName);	
+
+	}
+	
+
+}
+	
+?>

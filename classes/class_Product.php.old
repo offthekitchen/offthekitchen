@@ -1,0 +1,496 @@
+<?php
+/*
+*******************************************************************
+class_Product.php
+This PHP file defines the Product object class
+NOTES
+Date        Change
+-------------------------------------------------------------
+2015-06-04	Removed Product Type and refactored
+2015-11-17	Added check for existing revenues to delete function
+2015-12-19	removed unneeded includes
+*******************************************************************
+*/	
+
+//include DB Class		
+include_once (CLASS_DIR . "/class_DB.php");
+
+//include Error Class
+include_once (CLASS_DIR . "/class_Error.php");
+
+//ensure that related classes are included
+include_once (CLASS_DIR . "/class_Expense.php");
+include_once (CLASS_DIR . "/class_Revenue.php");
+
+
+class Product
+{
+
+	var $DB;
+
+	//PRODUCT Table Values
+	var $nProductID = 0;
+	var $sProductName = NULL;
+	var $nInventory = 0;
+	var $dtInventoryDate = NULL;
+	var $sImage = NULL;
+	var $sThumbnail = NULL;
+	var $dtLastUpdate = NULL;
+	
+	//Booleans used in Searching
+	var $bFuzzyNameSearch = FALSE;
+		
+
+	var $sErrorMessage = "";
+
+	/*****************************
+	 * Arrays of Related Objects *
+	 *****************************/
+	//Product Records matching search criteria
+	var $aProductRecords = array();
+	//Product Errors
+	var $aProductErrors = array();
+
+	//Constructor
+   function __construct() 
+   {
+		$this->DB = new Database();
+   }
+  
+
+	/*
+	 ********************************************************************************
+	 * getProduct()
+	 * 
+	 * This function retrieves Product data based on data in the properites and
+	 * returns an array of Product Objects
+	 ********************************************************************************
+	*/
+	function getProduct()
+	{
+		$this->aProductRecords = array();
+		
+		//Begin the SQL SELECT STATEMENT (Go ahead and get some basic information about the product type)
+		$sql =	"SELECT PRODUCT.* ";
+		$sql .= "  FROM PRODUCT ";
+		$sql .=	" WHERE 1=1";
+
+		$this->buildWhereClause($sql);
+
+//DEBUG
+//echo "SQL=". $sql . "<BR>";
+							
+		$result = NULL;
+		
+		if(!$this->executeSQL($sql,$result))
+		{
+			return -1;
+		}
+		else
+		{
+
+			$iProductCount = 0;
+
+			while($row = mysqli_fetch_array($result))
+			{
+
+				$oNextProduct = new Product();
+				
+				//Load each product into a Product Object
+				$this->loadProductObject($oNextProduct, $row);
+
+				//Then add the object to the array of found products
+				$this->aProductRecords[$iProductCount] = $oNextProduct;
+				
+				$iProductCount++;
+
+			}
+		
+			$this->DB->closeDB();
+			return TRUE;
+
+		}
+	}	
+	
+	/*
+	 ********************************************************************************
+	 * buildWhereClause()
+	 * 
+	 * This function builds a where clause for retrieving product records 
+	 ********************************************************************************
+	*/
+	function buildWhereClause(&$sql)
+	{
+		//If a specific Product ID is being searched, match on the ID
+		if ($this->nProductID > 0)
+		{
+			$sql .= " AND PRODUCT_ID = " . $this->nProductID;
+		}
+		else
+		{
+
+			// ****************
+			// * PRODUCT NAME *
+			// ****************
+			if (!empty($this->sProductName))
+			{
+				//If the Fuzzy Name Search flag is set, look for the pattern anywhere in the name
+				if ($this->bFuzzyNameSearch)
+				{
+					$sql .= " AND PRODUCT_NAME LIKE '%" . $this->sProductName . "%'";
+				}
+				else
+				{
+					$sql .= " AND PRODUCT_NAME = '" . $this->sProductName . "'";
+				}
+			}
+			
+			// *************
+			// * INVENTORY *
+			// *************
+			if (!empty($this->nInventory))
+			{
+				$sql .= " AND PRODUCT.INVENTORY = " . $this->nInventory;
+			}	
+			
+			// ******************
+			// * INVENTORY_DATE *
+			// ******************
+			if (!empty($this->dtInventoryDate))
+			{
+				$sql .= " AND PRODUCT.INVENTORY_DATE = " . $this->dtInventoryDate;
+			}	
+							
+			// *********
+			// * IMAGE *
+			// *********
+			if (!empty($this->sImage))
+			{
+				$sql .= " AND IMAGE = '" . $this->sImage . "'";
+			}
+	
+			// **************
+			// * THUMMBNAIL *
+			// **************
+			if (!empty($this->sThumbnail))
+			{
+				$sql .= " AND THUMBNAIL = '" . $this->sThumbnail . "'";
+			}
+
+			// ************
+			// * ORDER BY *
+			// ************
+			//ALPHABETICAL BY NAME
+			$sql .= " ORDER BY PRODUCT.PRODUCT_NAME";	
+		}
+
+	}
+	
+	/*
+	 ********************************************************************************
+	 * executeSQL()
+	 * 
+	 * This function opens a DB connection and attempts to execute an SQL statement 
+	 ********************************************************************************
+	*/
+	function executeSQL(&$sql, &$result)
+	{
+		//Open the DB
+		if (!$this->DB->openDB()) 
+		{
+			$this->sErrorMessage = "PRD001 - FAILED TO OPEN DB: " . $this->DB->dbError;
+			return false;
+		}
+
+		//Execute the SQL		
+		$result=mysqli_query($this->DB->dbConnection,$sql);
+
+		if (!$result) 
+		{
+
+			 $this->sErrorMessage = "PRD002 - " . mysqli_error($this->DB->dbConnection);
+			 $this->DB->closeDB();
+
+			 return false;
+		}
+		else
+		{
+			return true;
+		}
+	}
+
+
+	/*
+	 ********************************************************************************
+	 * Insert Product()
+	 * 
+	 * This function inserts a PRODUCT record 
+	 ********************************************************************************
+	*/
+	function insertProduct()
+	{
+
+		//Open the DB
+		if (!$this->DB->openDB()) 
+		{
+			$this->sErrorMessage = "PRD003 - FAILED TO OPEN DB: ";
+			return FALSE;
+		}
+			
+		$this->escapeSpecialChars();
+
+		$sql =	" INSERT INTO PRODUCT";
+		$sql .= " (PRODUCT_NAME,";		
+		$sql .= "  INVENTORY,";		
+		$sql .= "  INVENTORY_DATE,";		
+		$sql .= "  IMAGE,";		
+		$sql .= "  THUMBNAIL,";		
+		$sql .= "  LAST_UPDATE)";		
+
+		$sql .= " VALUES (";
+		$sql .= "'" . $this->sProductName . "',";	
+		if (is_numeric($this->nInventory))
+		{
+			$sql .= $this->nInventory . ",";	
+		}
+		else
+		{
+			$sql .= "NULL,";	
+		}
+		if (!empty($this->dtInventoryDate))
+		{
+			$sql .= "'" . $this->dtInventoryDate . "',";	
+		}
+		else
+		{
+			$sql .= " NULL,";	
+		}
+		$sql .= "'" . $this->sImage . "',";	
+		$sql .= "'" . $this->sThumbnail . "',";	
+		$sql .= "SYSDATE()";	
+		$sql .= ")";	
+		
+//DEBUG
+//echo "SQL=". $sql . "<BR>";
+	
+		//Execute the SQL		
+		$result=mysqli_query($this->DB->dbConnection,$sql);
+	
+		//SQL Error
+		if (!$result) 
+		{
+
+			 $this->sErrorMessage = "PRD004 - FAILED TO INSERT PRODUCT RECORD - " . mysqli_error($this->DB->dbConnection);
+			 return FALSE;
+		}
+		else 
+		{
+			$this->nProductID = mysqli_insert_id($this->DB->dbConnection);
+			return TRUE;	
+		}
+		
+
+	}	
+
+
+	/*
+	 ********************************************************************************
+	 * updateProduct()
+	 * 
+	 * This Updates a PRODUCT record
+	 ********************************************************************************
+	*/
+	function updateProduct()
+	{
+	
+		if ($this->nProductID > 0)
+		{
+	
+			//Open the DB
+			if (!$this->DB->openDB()) 
+			{
+				$this->sErrorMessage = "PRD005 - FAILED TO OPEN DB: ";
+				return FALSE;
+			}
+			
+			$this->escapeSpecialChars();
+
+			$sql =	" UPDATE PRODUCT ";
+			$sql .= " SET PRODUCT_NAME = '" . $this->sProductName . "'";
+			if(is_numeric($this->nInventory))
+			{
+				$sql .= ", INVENTORY = " . $this->nInventory;
+			}
+			else
+			{
+				$sql .= ", INVENTORY = NULL ";
+			}
+			if (!empty($this->dtInventoryDate))
+			{
+				$sql .= ", INVENTORY_DATE = '" . $this->dtInventoryDate . "'";
+			}
+			else
+			{
+				$sql .= ", INVENTORY_DATE = NULL";
+			}
+			$sql .= ", IMAGE = '" . $this->sImage . "'";
+			$sql .= ", THUMBNAIL = '" . $this->sThumbnail . "'";
+			$sql .= ", LAST_UPDATE = SYSDATE()";
+			$sql .= " WHERE PRODUCT_ID  = " . $this->nProductID;
+		
+//DEBUG
+//echo "SQL=". $sql . "<BR>";
+
+			//Execute the SQL		
+			$result=mysqli_query($this->DB->dbConnection,$sql);
+	
+			//SQL Error
+			if (!$result) {	
+
+				 $this->sErrorMessage = "PRD006 - FAILED TO UPDATE PRODUCT: " . mysqli_error($this->DB->dbConnection);
+				 return FALSE;
+			}
+			else 
+			{
+				return TRUE;	
+			}
+		
+		}
+		else
+		{
+			 $this->sErrorMessage = "PRD010 - NO PRODUCT_ID SPECIFIED ";
+			 return FALSE;
+		}
+	}
+
+	/*
+	 ********************************************************************************
+	 * deleteProduct()
+	 * 
+	 * This function deletes a Product record
+	 ********************************************************************************
+	*/
+	function deleteProduct()
+	{
+	
+		if ($this->nProductID > 0)
+		{
+	
+			//Look for Associated expenses
+			$oProductExpenses = new Expense();
+			$oProductExpenses->nProductID = $this->nProductID;
+			$nNumberOfProductExpenses = $oProductExpenses->getNumberOfExpenses();	
+
+			if ($nNumberOfProductExpenses == -1)
+			{
+				$this->sErrorMessage = "PRD011 - Failed to Retrieve Expenses for Product: " . $oProductExpenses->sErrorMessage;
+				return FALSE;
+			}
+			elseif ($nNumberOfProductExpenses > 0)
+			{
+				$this->sErrorMessage = "PRD012 - Can not delete Product because it has ";
+				$this->sErrorMessage .= "<A HREF='" . ADMIN_DIR . "/ExpenseMaintenance.php?PRODUCT_ID=" . $this->nProductID . "'>";		
+				$this->sErrorMessage .= $nNumberOfProductExpenses . " expenses.</A>";
+				return FALSE;
+			}
+			
+			//Look for Associated revenues
+			$oProductRevenues = new Revenue();
+			$oProductRevenues->nProductID = $this->nProductID;
+			$nNumberOfProductRevenues = $oProductRevenues->getNumberOfRevenues();	
+
+			if ($nNumberOfProductRevenues == -1)
+			{
+				$this->sErrorMessage = "PRD010 - Failed to Retrieve Revenues for Product: " . $oProductRevenues->sErrorMessage;
+				return FALSE;
+			}
+			elseif ($nNumberOfProductRevenues > 0)
+			{
+				$this->sErrorMessage = "PRD013 - Can not delete Product because it has ";
+				$this->sErrorMessage .= "<A HREF='" . ADMIN_DIR . "/RevenueMaintenance.php?PRODUCT_ID=" . $this->nProductID . "'>";		
+				$this->sErrorMessage .= $nNumberOfProductRevenues . " revenues.</A>";
+				return FALSE;
+			}			
+	
+			$sql =	" DELETE FROM PRODUCT";
+			$sql .= " WHERE PRODUCT_ID = " . $this->nProductID;
+		
+//DEBUG
+//echo "SQL=". $sql . "<BR>";
+
+			//Open the DB
+			if (!$this->DB->openDB()) 
+			{
+				$this->sErrorMessage = "PRD007 - FAILED TO OPEN DB: ";
+				return FALSE;
+			}		
+
+			//Execute the SQL		
+			$result=mysqli_query($this->DB->dbConnection,$sql);
+	
+			//SQL Error
+			if (!$result)
+			{	
+				 $this->sErrorMessage = "PRD008 - FAILED TO DELETE PRODUCT: " . mysqli_error($this->DB->dbConnection);
+				 return FALSE;
+			}
+			else 
+			{
+				return TRUE;	
+			}
+
+		}
+		else
+		{
+			$this->sErrorMessage = "PRD009 - CAN NOT DELETE PRODUCT BECAUSE NO PRODUCT ID SUPPLIED. ";
+			return FALSE;
+		}
+	}
+
+	/*
+	 ********************************************************************************
+	 * loadProductObject()
+	 * This function loads a given row from the PRODUCT table into a Product object.  
+	 ********************************************************************************
+	*/
+	function loadProductObject(&$oProduct, &$row)
+	{
+			$oProduct->nProductID = $row['PRODUCT_ID'];			
+			$oProduct->sProductName = $row['PRODUCT_NAME'];
+			$oProduct->nInventory = $row['INVENTORY'];			
+			$oProduct->dtInventoryDate = $row['INVENTORY_DATE'];	
+			$oProduct->sImage = $row['IMAGE'];
+			$oProduct->sThumbnail = $row['THUMBNAIL'];
+			$oProduct->dtLastUpdate= $row['LAST_UPDATE'];			
+	}
+
+	/*
+	 ********************************************************************************
+	 * escapeSpecialChars()
+	 * This function escapes any special characters in the objects properties
+	 * prior to a DB update.  The DB connection must be established prior to 
+	 * calling this function.  
+	 ********************************************************************************
+	*/
+	function escapeSpecialChars()
+	{
+		$this->sProductName = mysqli_real_escape_string($this->DB->dbConnection,$this->sProductName);	
+
+	}
+
+	/*
+	 ********************************************************************************
+	 * getProductErrors()
+	 * 
+	 * This function creates an array of Products that have errors 
+	 ********************************************************************************
+	*/
+	function getProductErrors()
+	{
+		return TRUE;		
+	}
+	
+
+}
+	
+?>

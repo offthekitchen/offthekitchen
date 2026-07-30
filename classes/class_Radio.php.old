@@ -1,0 +1,376 @@
+<?php
+
+//This include defines the relative path to the root directory from this sub-directory
+include_once ("root.inc.php");
+
+//inlcude web site settings
+include_once ($ROOT . "/includes/WebsiteSettings.php");
+//inlcude admin settings
+include_once (ADMIN_DIR . "/includes/AdminSettings.php");
+	
+//include DB Class		
+include_once (CLASS_DIR . "/class_DB.php");
+
+//include Error Class
+include_once (CLASS_DIR . "/class_Error.php");
+
+define("SINGLES_CD_ID",0);
+
+class Song
+{
+
+	var $DB;
+
+	//Song Table Values
+	var $nSongID = 0;
+	var $nCDID = 0;
+	var $nTracjNumber = 0;
+	var $sSongName = NULL;
+	var $sSongImage = NULL;
+	var $sLyricsHTML = NULL;
+	var $dtLastUpdate = NULL;
+	var $sOrderby = NULL;
+	
+	//Booleans used in Searching
+	var $bFuzzyNameSearch = FALSE;
+		
+	var $sErrorMessage = "";
+
+	/*****************************
+	 * Arrays of Related Objects *
+	 *****************************/
+	//Song Records matching search criteria
+	var $aSongRecords = array();
+	//Song Errors
+	var $aSongErrors = array();
+
+	//Constructor
+   function __construct() 
+   {
+		$this->DB = new Database();
+   }
+  
+
+	/*
+	 ********************************************************************************
+	 * getSong()
+	 * 
+	 * This function retrieves Song data based on data in the properites and
+	 * returns an array of Song Objects
+	 ********************************************************************************
+	*/
+	function getSong()
+	{
+
+	
+		$this->aSongRecords = array();
+		
+		//Begin the SQL SELECT STATEMENT (Go ahead and get some basic information about the Song)
+		$sql =	"SELECT SONG.* ";
+		$sql .= "  FROM SONG ";
+		$sql .=	" WHERE 1=1 ";
+		   
+
+		//If a specific Song ID is being searched, match on the ID
+		if ($this->nSongID > 0)
+		{
+			$sql .= " AND SONG_ID = " . $this->nSongID;
+		}
+		else
+		{
+		//Otherwise build an SQL statement based on the values in the properties
+			
+			// *************
+			// * SONG NAME *
+			// *************
+			if (!empty($this->sSongName))
+			{
+				//If the Fuzzy Name Search flag is set, look for the pattern anywhere in the name
+				if ($this->bFuzzyNameSearch)
+				{
+					$sql .= " AND SONG_NAME LIKE '%" . $this->sSongName . "%'";
+				}
+				else
+				{
+					$sql .= " AND SONG_NAME = '" . $this->sSongName . "'";
+				}
+			}
+			
+			// *********
+			// * CD ID *
+			// *********
+			if (!is_null($this->nCDID))
+			{
+				$sql .= " AND CD_ID = " . $this->nCDID;
+			}
+
+			// ****************
+			// * TRACK NUMBER *
+			// ****************
+			if (!empty($this->nTrackNumber))
+			{
+				$sql .= " AND TRACK_NUMBER = " . $this->nTrackNumber;
+			}
+
+			// **************
+			// * SONG IMAGE *
+			// **************
+			if (!empty($this->sSongImage))
+			{
+				$sql .= " AND SONG_IMAGE = '" . $this->sSongImage . "'";
+			}
+
+			// ***************
+			// * LYRICS HTML *
+			// ***************
+			if (!empty($this->sLyricsHTML))
+			{
+				$sql .= " AND LYRICS_HTML = '" . $this->sLyricsHTML . "'";
+			}
+
+			// ************
+			// * ORDER BY *
+			// ************
+			//ORDER BY
+			switch($this->sOrderBy)
+			{
+				case "Track":
+				$sql .= " ORDER BY TRACK_NUMBER";	
+				break;
+				
+				default:
+				$sql .= " ORDER BY LAST_UPDATE DESC";
+				break;	
+
+			}
+
+		}
+//DEBUG
+//echo "SQL=". $sql . "<BR>";
+							
+		//Open the DB
+		if (!$this->DB->openDB()) 
+		{
+			$this->sErrorMessage = "SNG001 - FAILED TO OPEN DB: " . $this->DB->dbError;
+			return FALSE;
+		}
+
+		//Execute the SQL		
+		$result=mysql_query($sql, $this->DB->dbConnection);
+
+
+		//SQL Error
+		if (!$result) {
+
+			 $this->sErrorMessage = "SNG002 - " . mysql_error($this->DB->dbConnection);
+			 $this->DB->closeDB();
+			 return FALSE;
+		}
+		else 
+		{
+
+			$iSongCount = 0;
+
+			while($row = mysql_fetch_array($result))
+			{
+
+				$oNextSong = new Song();
+				
+				//Load each product into a Song Object
+				$this->loadSongObject($oNextSong, $row);
+
+				//Then add the object to the array of found products
+				$this->aSongRecords[$iSongCount] = $oNextSong;
+				
+				$iSongCount++;
+
+			}
+		
+			$this->DB->closeDB();
+			return TRUE;
+
+		}
+
+	}
+
+	/*
+	 ********************************************************************************
+	 * Insert Song()
+	 * 
+	 * This function inserts a Song record 
+	 ********************************************************************************
+	*/
+	function insertSong()
+	{
+		$sql =	" INSERT INTO SONG";
+		$sql .= " (SONG_NAME,";		
+		$sql .= "  CD_ID,";
+		$sql .= "  TRACK_NUMBER,";
+		$sql .= "  SONG_IMAGE,";
+		$sql .= "  LYRICS_HTML,";
+		$sql .= "  LAST_UPDATE)";		
+
+		$sql .= " VALUES (";
+		$sql .= "'" . $this->sSongName . "',";	
+		$sql .= $this->nCDID . ",";	
+		$sql .= $this->nTrackNumber . ",";	
+		$sql .= "'" . $this->sSongImage . "',";	
+		$sql .= "'" . $this->sLyricsHTML . "',";	
+		$sql .= "SYSDATE()";	
+		$sql .= ")";	
+		
+//DEBUG
+//echo "SQL=". $sql . "<BR>";
+
+		//Open the DB
+		if (!$this->DB->openDB()) 
+		{
+			$this->sErrorMessage = "SNG003 - FAILED TO OPEN DB: ";
+			return FALSE;
+		}
+			
+	
+		//Execute the SQL		
+		$result=mysql_query($sql, $this->DB->dbConnection);
+	
+		//SQL Error
+		if (!$result) 
+		{
+
+			 $this->sErrorMessage = "SNG004 - FAILED TO INSERT Song RECORD - " . mysql_error($this->DB->dbConnection);
+			 return FALSE;
+		}
+		else 
+		{
+			$this->nSongID = mysql_insert_id();
+			return TRUE;	
+		}
+		
+
+	}	
+
+
+	/*
+	 ********************************************************************************
+	 * updateSong()
+	 * 
+	 * This Updates a Song record
+	 ********************************************************************************
+	*/
+	function updateSong()
+	{
+	
+		if ($this->nSongID > 0)
+		{
+	
+			$sql =	" UPDATE SONG ";
+			$sql .= "    SET SONG_NAME = '" . $this->sSongName . "'";
+			$sql .= "       ,CD_ID = " . $this->nCDID;
+			$sql .= "       ,TRACK_NUMBER = " . $this->nTrackNumber;
+			$sql .= "       ,SONG_IMAGE = '" . $this->sSongImage . "'";
+			$sql .= "       ,LYRICS_HTML = '" . $this->sLyricsHTML . "'";
+			$sql .= "       ,LAST_UPDATE = SYSDATE()";
+			$sql .= "  WHERE SONG_ID  = " . $this->nSongID;
+		
+//DEBUG
+//echo "SQL=". $sql . "<BR>";
+
+			//Open the DB
+			if (!$this->DB->openDB()) 
+			{
+				$this->sErrorMessage = "SNG005 - FAILED TO OPEN DB: ";
+				return FALSE;
+			}
+			
+			//Execute the SQL		
+			$result=mysql_query($sql, $this->DB->dbConnection);
+	
+			//SQL Error
+			if (!$result) {	
+
+				 $this->sErrorMessage = "SNG006 - FAILED TO UPDATE Song: " . mysql_error($this->DB->dbConnection);
+				 return FALSE;
+			}
+			else 
+			{
+				return TRUE;	
+			}
+		
+		}
+		else
+		{
+			 $this->sErrorMessage = "SNG010 - NO SONG_ID SPECIFIED ";
+			 return FALSE;
+		}
+	}
+
+	/*
+	 ********************************************************************************
+	 * deleteSong()
+	 * 
+	 * This function deletes a Song record
+	 ********************************************************************************
+	*/
+	function deleteSong()
+	{
+		if ($this->nSongID > 0)
+		{
+	
+			$sql =	" DELETE FROM SONG";
+			$sql .= " WHERE SONG_ID = " . $this->nSongID;
+		
+//DEBUG
+//echo "SQL=". $sql . "<BR>";
+
+			//Open the DB
+			if (!$this->DB->openDB()) 
+			{
+				$this->sErrorMessage = "SNG007 - FAILED TO OPEN DB: ";
+				return FALSE;
+			}		
+
+			//Execute the SQL		
+			$result=mysql_query($sql, $this->DB->dbConnection);
+	
+			//SQL Error
+			if (!$result)
+			{	
+				 $this->sErrorMessage = "SNG008 - FAILED TO DELETE Song: " . mysql_error($this->DB->dbConnection);
+				 return FALSE;
+			}
+			else 
+			{
+				return TRUE;	
+			}
+
+		}
+		else
+		{
+			$this->sErrorMessage = "SNG009 - CAN NOT DELETE Song BECAUSE NO Song ID SUPPLIED. ";
+			return FALSE;
+		}
+	}
+
+	/*
+	 ********************************************************************************
+	 * loadSongObject()
+	 * This function loads a given row from the Song table into a Song object.  
+	 ********************************************************************************
+	*/
+	function loadSongObject(&$oSong, &$row)
+	{
+
+			$oSong->nSongID = $row['SONG_ID'];			
+			$oSong->sSongName = $row['SONG_NAME'];
+			$oSong->nCDID = $row['CD_ID'];
+			$oSong->nTrackNumber = $row['TRACK_NUMBER'];
+			$oSong->sSongImage = $row['SONG_IMAGE'];
+			$oSong->sLyricsHTML = $row['LYRICS_HTML'];
+			$oSong->dtLastUpdate= $row['LAST_UPDATE'];			
+
+	}
+
+
+}
+	
+?>

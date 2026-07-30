@@ -1,0 +1,457 @@
+<?php
+/*
+*******************************************************************
+class_Artist.php
+This PHP file defines Artist object class
+NOTES
+Date        Change
+-------------------------------------------------------------
+2015-12-18	Created
+*******************************************************************
+*/	
+
+//include Song Class		
+include_once (CLASS_DIR . "/class_Song.php");
+	
+//include CD Class		
+include_once (CLASS_DIR . "/class_CD.php");
+	
+//include DB Class		
+include_once (CLASS_DIR . "/class_DB.php");
+
+//include Error Class
+include_once (CLASS_DIR . "/class_Error.php");
+
+class Artist
+{
+
+	var $DB;
+
+	//Artist Table Values
+	var $nArtistID = 0;
+	var $sArtistName = NULL;
+	var $sArtistImage = NULL;
+	var $dtLastUpdate = NULL;
+	
+	//Booleans used in Searching
+	var $bFuzzyNameSearch = FALSE;
+		
+	var $sErrorMessage = "";
+
+	//Songs assigned to this Artist
+	var $oArtistSongs = NULL;
+
+	//CDs assigned to this Artist
+	var $oArtistCDs = NULL;
+
+	/*****************************
+	 * Arrays of Related Objects *
+	 *****************************/
+	//Artist Records matching search criteria
+	var $aArtistRecords = array();
+	//Artist Errors
+	var $aArtistErrors = array();
+
+	//Constructor
+   function __construct() 
+   {
+		$this->DB = new Database();
+   }
+  
+
+	/*
+	 ********************************************************************************
+	 * getArtist()
+	 * 
+	 * This function retrieves Artist data based on data in the properites and
+	 * returns an array of Artist Objects
+	 ********************************************************************************
+	*/
+	function getArtist()
+	{
+	
+		$this->aArtistRecords = array();
+		
+		//Begin the SQL SELECT STATEMENT (Go ahead and get some basic information about the Artist)
+		$sql =	"SELECT ARTIST.* ";
+		$sql .= "  FROM ARTIST ";
+		$sql .=	" WHERE 1=1 ";
+		$this->buildWhereClause($sql);
+
+//DEBUG
+//echo "SQL={$sql}<BR>";
+							
+		$result = NULL;
+		
+		if(!$this->executeSQL($sql,$result))
+		{
+			return -1;
+		}
+		else
+		{
+
+			$iArtistCount = 0;
+
+			while($row = mysqli_fetch_array($result))
+			{
+
+				$oNextArtist = new Artist();
+				
+				//Load each product into a Artist Object
+				$this->loadArtistObject($oNextArtist, $row);
+
+				//Then add the object to the array of found products
+				$this->aArtistRecords[$iArtistCount] = $oNextArtist;
+				
+				$iArtistCount++;
+
+			}
+		
+			$this->DB->closeDB();
+			return TRUE;
+
+		}
+
+	}
+
+	/*
+	 ********************************************************************************
+	 * getArtistSongs()
+	 * 
+	 * This function loads the array of Song objects associated with this Artist 
+	 ********************************************************************************
+	*/
+	function getArtistSongs()
+	{
+		$this->oArtistSongs = new Song();
+		$this->oArtistSongs->nArtistID = $this->nArtistID;
+		if(!$this->oArtistSongs->getSong())
+		{
+			$this->sErrorMessage = "ART011 - Failed to retrieve Songs: " . $this->oArtistSongs->sErrorMessage;
+			return false; 
+		}
+		else
+		{
+			return true;
+		}
+	}	
+
+	/*
+	 ********************************************************************************
+	 * getArtistCDs()
+	 * 
+	 * This function loads the array of CD objects associated with this Artist 
+	 ********************************************************************************
+	*/
+	function getArtistCDs()
+	{
+		$this->oArtistCDs = new CD();
+		$this->oArtistCDs->nArtistID = $this->nArtistID;
+		if(!$this->oArtistCDs->getCD())
+		{
+			$this->sErrorMessage = "ART012 - Failed to retrieve CDs: " . $this->oArtistCDs->sErrorMessage;
+			return false; 
+		}
+		else
+		{
+			return true;
+		}
+	}	
+
+	/*
+	 ********************************************************************************
+	 * buildWhereClause()
+	 * 
+	 * This function builds a where clause for retrieving payment records 
+	 ********************************************************************************
+	*/
+	function buildWhereClause(&$sql)
+	{
+	
+	//If a specific Artist ID is being searched, match on the ID
+		if ($this->nArtistID > 0)
+		{
+			$sql .= " AND ARTIST_ID = {$this->nArtistID}";
+		}
+		else
+		{
+		//Otherwise build an SQL statement based on the values in the properties
+			
+			// ****************
+			// * Artist NAME *
+			// ****************
+			if (!empty($this->sArtistName))
+			{
+				//If the Fuzzy Name Search flag is set, look for the pattern anywhere in the name
+				if ($this->bFuzzyNameSearch)
+				{
+					$sql .= " AND ARTIST_NAME LIKE '%{$this->sArtistName}%'";
+				}
+				else
+				{
+					$sql .= " AND ARTIST_NAME = '{$this->sArtistName}'";
+				}
+			}
+			
+			if (!empty($this->sArtistImage))
+			{
+				$sql .= " AND ARTIST_IMAGE = '{$this->sArtistImage}'";
+			}
+			
+			// ************
+			// * ORDER BY *
+			// ************
+			//ALPHABETICAL BY NAME
+			$sql .= " ORDER BY LAST_UPDATE DESC";	
+
+		}
+	}
+
+	/*
+	 ********************************************************************************
+	 * executeSQL()
+	 * 
+	 * This function opens a DB connection and attempts to execute an SQL statement 
+	 ********************************************************************************
+	*/
+	function executeSQL(&$sql, &$result)
+	{
+		//Open the DB
+		if (!$this->DB->openDB()) 
+		{
+			$this->sErrorMessage = "ART001 - FAILED TO OPEN DB: {$this->DB->dbError}";
+			return false;
+		}
+
+		//Execute the SQL		
+		$result=mysqli_query($this->DB->dbConnection,$sql);
+
+		if (!$result) 
+		{
+
+			 $this->sErrorMessage = "ART002 - " . mysqli_error($this->DB->dbConnection);
+			 $this->DB->closeDB();
+
+			 return false;
+		}
+		else
+		{
+			return true;
+		}
+	}
+		
+	/*
+	 ********************************************************************************
+	 * Insert Artist()
+	 * 
+	 * This function inserts a Artist record 
+	 ********************************************************************************
+	*/
+	function insertArtist()
+	{
+		//Open the DB
+		if (!$this->DB->openDB()) 
+		{
+			$this->sErrorMessage = "ART003 - FAILED TO OPEN DB: ";
+			return FALSE;
+		}
+
+		$this->escapeSpecialChars();
+
+		$sql =	" INSERT INTO ARTIST";
+		$sql .= " (ARTIST_NAME,";		
+		$sql .= "  ARTIST_IMAGE,";
+		$sql .= "  LAST_UPDATE)";		
+		$sql .= " VALUES (";
+		$sql .= "'{$this->sArtistName}',";	
+		$sql .= "'{$this->sArtistImage}',";	
+		$sql .= "SYSDATE()";	
+		$sql .= ")";	
+		
+//DEBUG
+//echo "SQL={$sql}<BR>";
+
+		//Execute the SQL		
+		$result=mysqli_query($this->DB->dbConnection,$sql);
+	
+		//SQL Error
+		if (!$result) 
+		{
+
+			 $this->sErrorMessage = "ART004 - FAILED TO INSERT ARTIST RECORD - " . mysqli_error($this->DB->dbConnection);
+			 return FALSE;
+		}
+		else 
+		{
+			$this->nArtistID = mysqli_insert_id($this->DB->dbConnection);
+			return TRUE;	
+		}
+		
+
+	}	
+
+
+	/*
+	 ********************************************************************************
+	 * updateArtist()
+	 * 
+	 * This Updates a Artist record
+	 ********************************************************************************
+	*/
+	function updateArtist()
+	{
+	
+		if ($this->nArtistID > 0)
+		{
+
+			//Open the DB
+			if (!$this->DB->openDB()) 
+			{
+				$this->sErrorMessage = "ART005 - FAILED TO OPEN DB: ";
+				return FALSE;
+			}
+
+			$this->escapeSpecialChars();
+				
+			$sql =	" UPDATE ARTIST ";
+			$sql .= "    SET ARTIST_NAME = '{$this->sArtistName}'";
+			$sql .= "       ,ARTIST_IMAGE = '{$this->sArtistImage}'";
+			$sql .= "       ,LAST_UPDATE = SYSDATE()";
+			$sql .= "  WHERE ARTIST_ID  = {$this->nArtistID}";
+		
+//DEBUG
+//echo "SQL={$sql}<BR>";
+
+			
+			//Execute the SQL		
+			$result=mysqli_query($this->DB->dbConnection,$sql);
+	
+			//SQL Error
+			if (!$result) {	
+
+				 $this->sErrorMessage = "ART006 - FAILED TO UPDATE ARTIST: " . mysqli_error($this->DB->dbConnection);
+				 return FALSE;
+			}
+			else 
+			{
+				return TRUE;	
+			}
+		
+		}
+		else
+		{
+			 $this->sErrorMessage = "ART010 - NO ARTIST_ID SPECIFIED ";
+			 return FALSE;
+		}
+	}
+
+	/*
+	 ********************************************************************************
+	 * deleteArtist()
+	 * 
+	 * This function deletes a Artist record
+	 ********************************************************************************
+	*/
+	function deleteArtist()
+	{
+		if ($this->nArtistID > 0)
+		{
+			//Look for Associated Songs
+			if ($this->getArtistSongs())
+			{
+			
+				if ($this->getArtistCDs())
+				{
+				
+					if (sizeof($this->oArtistSongs->aSongRecords) > 0  || sizeof($this->oArtistCDs->aCDRecords) > 0)
+					{
+						$this->sErrorMessage = "ART0013 - Can not delete Artist because it is associated with ";
+						$this->sErrorMessage .= "<A HREF='" . ADMIN_DIR . "/SongMaintenance.php?ARTIST_ID=" . $this->nArtistID;
+						$this->sErrorMessage .= "'>" . sizeof($this->oArtistSongs->aSongRecords) . " songs</A>";
+						$this->sErrorMessage .= " and <A HREF='" . ADMIN_DIR . "/CDMaintenance.php?ARTIST_ID=" . $this->nArtistID;
+						$this->sErrorMessage .= "'>" . sizeof($this->oArtistCDs->aCDRecords) . " CDs.</A>";
+						return FALSE;
+					}
+				}
+				else
+				{
+					$this->sErrorMessage = "ART0015 - Failed to retrieve Songs for this Artist: " . $oArtistSongs->sErrorMessage;
+					return FALSE;
+				}
+	
+			}
+			else
+			{
+				$this->sErrorMessage = "ART0014 - Failed to retrieve Songs for this Artist: " . $oArtistSongs->sErrorMessage;
+				return FALSE;
+			}
+				
+			$sql =	" DELETE FROM ARTIST";
+			$sql .= " WHERE ARTIST_ID = {$this->nArtistID}";
+		
+//DEBUG
+//echo "SQL={$sql}<BR>";
+
+			//Open the DB
+			if (!$this->DB->openDB()) 
+			{
+				$this->sErrorMessage = "ART007 - FAILED TO OPEN DB: ";
+				return FALSE;
+			}		
+
+			//Execute the SQL		
+			$result=mysqli_query($this->DB->dbConnection,$sql);
+	
+			//SQL Error
+			if (!$result)
+			{	
+				 $this->sErrorMessage = "ART008 - FAILED TO DELETE ARTIST: " . mysqli_error($this->DB->dbConnection);
+				 return FALSE;
+			}
+			else 
+			{
+				return TRUE;	
+			}
+
+		}
+		else
+		{
+			$this->sErrorMessage = "ART009 - CAN NOT DELETE ARTIST BECAUSE NO ARTIST ID SUPPLIED. ";
+			return FALSE;
+		}
+	}
+
+	/*
+	 ********************************************************************************
+	 * loadArtistObject()
+	 * This function loads a given row from the Artist table into a Artist object.  
+	 ********************************************************************************
+	*/
+	function loadArtistObject(&$oArtist, &$row)
+	{
+
+			$oArtist->nArtistID = $row['ARTIST_ID'];			
+			$oArtist->sArtistName = $row['ARTIST_NAME'];
+			$oArtist->sArtistImage = $row['ARTIST_IMAGE'];
+			$oArtist->dtLastUpdate= $row['LAST_UPDATE'];			
+
+	}
+	/*
+	 ********************************************************************************
+	 * escapeSpecialChars()
+	 * This function escapes any special characters in the objects properties
+	 * prior to a DB update.  The DB connection must be established prior to 
+	 * calling this function.  
+	 ********************************************************************************
+	*/
+	function escapeSpecialChars()
+	{
+	
+		$this->sArtistName = mysqli_real_escape_string($this->DB->dbConnection,$this->sArtistName);	
+
+	}
+
+
+}
+	
+?>

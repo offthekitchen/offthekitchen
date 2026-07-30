@@ -1,0 +1,540 @@
+<?php
+/*
+*******************************************************************
+class_Tour.php
+This PHP file defines the Tour object class
+NOTES
+Date        Change
+-------------------------------------------------------------
+2015-12-19	removed unneeded includes
+*******************************************************************
+*/	
+
+//include DB Class		
+include_once (CLASS_DIR . "/class_DB.php");
+
+//include Performance Class		
+include_once (CLASS_DIR . "/class_Performance.php");
+
+//include Expense Class		
+include_once (CLASS_DIR . "/class_Expense.php");
+
+//include Error Class
+//include_once (CLASS_DIR . "/class_Error.php");
+
+class Tour
+{
+
+	var $DB;
+	
+	//Tour Values
+	var $nTourID = 0;
+	var $sTourName = NULL;
+	var $dtTourStartDate = NULL;
+	var $dtTourEndDate = NULL;
+	var $sNotes = NULL;
+	var $dtTourIncludeDate = NULL;
+	var $dtLastUpdate = NULL;
+
+	var $bFuzzyNameSearch = FALSE;
+
+	/*****************
+	 * Object Arrays *
+	 *****************/
+	//Tours
+	var $aTourRecords = array();
+	//Performances assigned to this Tour
+	var $oTourPerformances = NULL;
+	//Potential Performances not assigned to this Tour
+	var $oPotentialPerformances = NULL;
+	//Expenses assigned to this Tour
+	var $aTourExpenses = array();
+	//Revenues assigned to this Tour
+	var $aTourRevenues = array();
+	//Tour Errors
+	var $aTourErrors = array();
+	
+		
+	//Error variables
+	var $sErrorMessage = "";
+
+	//Constructor
+   function __construct() 
+   {
+		$this->DB = new Database();
+   }
+
+	/*
+	 ********************************************************************************
+	 * getTour()
+	 * 
+	 * This function retrieves Tour data based on data in the properites and
+	 *  returns an array of Tour Objects
+	 ********************************************************************************
+	*/
+	function getTour()
+	{
+	
+		$this->aTourRecords = array();
+		
+		//Begin the SQL SELECT STATEMENT
+		$sql =	"SELECT  TOUR.* ";
+		$sql .=	" FROM  TOUR ";
+		$sql .=	" WHERE 1=1 ";
+	
+	
+		//Tour ID
+		if ($this->nTourID > 0)
+		{
+			$sql .= " AND TOUR.TOUR_ID = {$this->nTourID}";
+		}
+		else
+		{
+		
+			if (!empty($this->sTourName))
+			{
+				if ($this->bFuzzyNameSearch)
+				{
+					$sql .= " AND TOUR.TOUR_NAME LIKE '%{$this->sTourName}%'";
+				}
+				else
+				{
+					$sql .= " AND TOUR.TOUR_NAME = '{$this->sTourName}'";
+				}
+			}
+
+			// **************************************************************
+			// * Include Date                                               *
+			// * Search for a tour based on a single date withint the range *
+			// **************************************************************
+			if (!empty($this->dtTourIncludeDate))
+			{
+				$sql .= " AND TOUR_START_DATE <= '{$this->dtTourIncludeDate}'";
+				$sql .= " AND TOUR_END_DATE >= '{$this->dtTourIncludeDate}'";
+			}
+
+			// *********
+			// * NOTES *
+			// *********
+			if (!empty($this->sNotes))
+			{
+				$sql .= " {$sAndOr} NOTES LIKE '%{$this->sNotes}%'";
+			}	
+
+
+			
+			$sql .= " ORDER BY TOUR.TOUR_NAME";
+
+		}		
+
+//DEBUG
+echo "SQL={$sql}<BR>";
+
+		//Open the DB
+		if (!$this->DB->openDB()) 
+		{
+			$this->sErrorMessage = "TOUR001 - FAILED TO OPEN DB: {$this->DB->dbError}";
+			return FALSE;
+		}
+
+	
+		//Execute the SQL		
+		$result=mysqli_query($this->DB->dbConnection, $sql);
+	
+		//SQL Error
+		if (!$result) {
+
+			 $this->sErrorMessage = "TOUR002 - " . mysqli_error($this->DB->dbConnection);
+			 $this->DB->closeDB();
+			 return FALSE;
+		}
+		else 
+		{
+			$iTourCount = 0;
+
+			//If multiple rows are returned, then load them into the array of search results
+			while($row = mysqli_fetch_array($result))
+			{
+				$oNextTour = new Tour();
+				
+				//Load each Tour into an Object
+				$this->loadTourObject($oNextTour, $row);
+										
+				$this->aTourRecords[$iTourCount] = $oNextTour;
+
+				$iTourCount++;
+				
+				
+			}
+			return TRUE;
+		}
+	}
+	/*
+	 ********************************************************************************
+	 * getLastTour()
+	 * 
+	 * This function gets the most recent tour 
+	 ********************************************************************************
+	*/
+	function getLastTour()
+	{
+		$sql =	"SELECT TOUR.* ";
+		$sql .= "  FROM TOUR ";
+		$sql .=	" WHERE TOUR_END_DATE <= CURRENT_DATE ";
+		$sql .=	" ORDER BY TOUR_END_DATE DESC ";
+		$sql .=	"       LIMIT 1 ";
+		
+//DEBUG
+//echo "SQL={$sql}<BR>";
+							
+		//Open the DB
+		if (!$this->DB->openDB()) 
+		{
+			$this->sErrorMessage = "TOUR011 - FAILED TO OPEN DB: {$this->DB->dbError}";
+			return FALSE;
+		}
+
+		//Execute the SQL		
+		$result=mysqli_query($this->DB->dbConnection,$sql);
+
+		//SQL Error
+		if (!$result) {
+
+			 $this->sErrorMessage = "TOUR017 - " . mysqli_error($this->DB->dbConnection);
+			 $this->DB->closeDB();
+			 return FALSE;
+		}
+		else 
+		{
+
+			$iTourCount = 0;
+
+			while($row = mysqli_fetch_array($result))
+			{
+
+				$oNextTour = new Tour();
+				
+				//Load each product into a Performance Object
+				$this->loadTourObject($oNextTour, $row);
+
+				//Then add the object to the array of found products
+				$this->aTourRecords[$iTourCount] = $oNextTour;
+				
+				$iTourCount++;
+			}
+		
+			$this->DB->closeDB();
+			return TRUE;
+
+		}
+	}
+
+
+	/*
+	 ********************************************************************************
+	 * getTourExpenses()
+	 * 
+	 * This function loads the array of Expense objects 
+	 ********************************************************************************
+	*/
+	function getTourExpenses()
+	{
+		$oTourExpenses = new Expense();	
+		$oTourExpenses->nTourID = $this->nTourID;	
+		
+		if($oTourExpenses->getExpense())
+		{
+			$this->aTourExpenses = $oTourExpenses->aExpenseRecords;
+		}
+		else
+		{
+			$this->sErrorMessage = "TOUR003 - {$oTourExpenses->sErrorMessage}";
+			return FALSE;
+		}
+	
+		return TRUE;
+
+	}		
+
+	/*
+	 ********************************************************************************
+	 * getTourPerformances()
+	 * 
+	 * This function loads the array of Performance objects associated with this Tour 
+	 ********************************************************************************
+	*/
+	function getTourPerformances()
+	{
+		$this->oTourPerformances = new Performance();
+		$this->oTourPerformances->nTourID = $this->nTourID;
+		if(!$this->oTourPerformances->getPerformance())
+		{
+			$this->sErrorMessage = "TOUR010 - Failed to retrieve Performances: {$this->oTourPerformances->sErrorMessage}";
+			return false; 
+		}
+		else
+		{
+			return true;
+		}
+	}	
+
+	/*
+	 ********************************************************************************
+	 * getPotentialPerformances()
+	 * 
+	 * This function loads the array of Performance objects whose dates fall within
+	 * the range of this tour 
+	 ********************************************************************************
+	*/
+	function getPotentialPerformances()
+	{
+		$this->oPotentialPerformances = new Performance();
+		$this->oPotentialPerformances->dtStartDate = $this->dtTourStartDate;
+		$this->oPotentialPerformances->dtEndDate = $this->dtTourEndDate;
+		$this->oPotentialPerformances->nExcludeTourID = $this->nTourID;
+		if(!$this->oPotentialPerformances->getPerformance())
+		{
+			$this->sErrorMessage = "TOUR021 - Failed to retrieve Performances: {$this->oPotentialPerformances->sErrorMessage}";
+			return false; 
+		}
+		else
+		{
+			return true;
+		}
+	}	
+
+	
+	/*
+	 ********************************************************************************
+	 * insertTour()
+	 * 
+	 * This function inserts a Tour record on the DB
+	 ********************************************************************************
+	*/
+	function insertTour()
+	{
+		//Open the DB
+		if (!$this->DB->openDB()) 
+		{
+			$this->sErrorMessage = "TOUR004 - FAILED TO OPEN DB: ";
+			return FALSE;
+		}
+			
+		$this->escapeSpecialChars();
+	
+		$sql =	" INSERT INTO TOUR";
+		$sql .= " (TOUR_NAME,";
+		$sql .= " TOUR_START_DATE,";
+		$sql .= " TOUR_END_DATE,";
+		$sql .= " NOTES,";
+		$sql .= " LAST_UPDATE)";
+		$sql .= " VALUES (";
+		$sql .= "'{$this->sTourName}',";	
+		$sql .= "'{$this->dtTourStartDate}',";	
+		$sql .= "'{$this->dtTourEndDate}',";
+		$sql .= "'{$this->sNotes}',";	
+		$sql .= " NOW()";
+		$sql .= ")";	
+		
+//DEBUG
+//echo "SQL={$sql}<BR>";
+	
+		//Execute the SQL		
+		$result=mysqli_query($this->DB->dbConnection, $sql);
+	
+		//SQL Error
+		if (!$result) {
+
+			 $this->sErrorMessage = "TOUR005 - " . mysqli_error($this->DB->dbConnection);
+			 return FALSE;
+		}
+		else 
+		{
+			$this->nTourID = mysqli_insert_id($this->DB->dbConnection);
+ 
+			return TRUE;	
+		}
+		
+		if (!$this->DB->closeDB())
+		{
+			$this->sErrorMessage = "TOUR006 -  FAILED TO CLOSE DB: ";
+			return FALSE;
+		}
+	
+	}
+
+	/*
+	 ********************************************************************************
+	 * updateTour()
+	 * 
+	 * This function inserts a Tour record on the DB
+	 ********************************************************************************
+	*/
+	function updateTour()
+	{
+
+		if($this->nTourID > 0)
+		{	
+			//Open the DB
+			if (!$this->DB->openDB()) 
+			{
+				$this->sErrorMessage = "TOUR007 - FAILED TO OPEN DB: ";
+				return FALSE;
+			}
+			
+			$this->escapeSpecialChars();
+
+			$sql =	" UPDATE TOUR ";
+			$sql .= " SET TOUR_NAME = '{$this->sTourName}'";
+			$sql .= ", TOUR_START_DATE = '{$this->dtTourStartDate}'";
+			$sql .= ", TOUR_END_DATE = '{$this->dtTourEndDate}'";
+			$sql .= ", NOTES = '{$this->sNotes}'";
+			$sql .= ", LAST_UPDATE = NOW()";
+			$sql .= " WHERE TOUR_ID = {$this->nTourID}";
+			
+//DEBUG
+//echo "SQL={$sql}<BR>";
+
+			//Execute the SQL		
+			$result=mysqli_query($this->DB->dbConnection, $sql);
+	
+			//SQL Error
+			if (!$result) {	
+
+				 $this->sErrorMessage = "TOUR008 - " . mysqli_error($this->DB->dbConnection);
+				 return FALSE;
+			}
+			else 
+			{	
+
+				return TRUE;	
+			}
+			
+			if (!$this->DB->closeDB())
+			{
+				$this->sErrorMessage = "TOUR009 - FAILED TO CLOSE DB ";
+				return FALSE;
+			}
+		}
+		else
+		{
+				$this->sErrorMessage = "TOUR016 - NO TOUR_ID SPECIFIED ";
+				return FALSE;
+		}
+	}
+
+	/*
+	 ********************************************************************************
+	 * deleteTour()
+	 * 
+	 * This function deletes a Tour record from the DB
+	 ********************************************************************************
+	*/
+	function deleteTour()
+	{
+		//Look for Associated expenses
+		$oTourExpenses = new Expense();
+		$oTourExpenses->nTourID = $this->nTourID;
+		$nNumberOfTourExpenses = $oTourExpenses->getNumberOfExpenses();
+
+		if ($nNumberOfTourExpenses == -1)
+		{
+			$this->sErrorMessage = "TOUR012 - Failed to Retrieve Expenses for Tour: {$oTourExpenses->sErrorMessage}";
+			return FALSE;
+		}
+		elseif ($nNumberOfTourExpenses > 0)
+		{
+			$this->sErrorMessage = "TOUR013 - Can not delete Tour because it has ";
+				$this->sErrorMessage .= "<A HREF='" . ADMIN_DIR . "/ExpenseMaintenance.php?TOUR_ID={$this->nTourID}'>";		
+				$this->sErrorMessage .= "{$nNumberOfTourExpenses} expenses.</A>";
+			return FALSE;
+		}
+
+		//Look for Assocciated Performances
+		if ($this->getTourPerformances())
+		{
+			if (sizeof($this->oTourPerformances->aPerformanceRecords) > 0)
+			{
+				$this->sErrorMessage = "TOUR018 - Can not delete Tour because it has " . sizeof($this->oTourPerformances->aPerformanceRecords) . " performances.";
+				return FALSE;
+			}
+
+		}
+		else
+		{
+			$this->sErrorMessage = "TOUR019 - Failed to retrieve Performances for Tour";
+			return FALSE;
+		}
+			
+		//Open the DB
+		if (!$this->DB->openDB()) 
+		{
+			$this->sErrorMessage = "TOUR020 - FAILED TO OPEN DB: " . mysqli_error($this->DB->dbConnection);
+			return FALSE;
+		}
+		
+	
+		$sql =	" DELETE FROM TOUR ";
+		$sql .= " WHERE TOUR_ID = {$this->nTourID}";
+		
+//DEBUG
+//echo "SQL={$sql}<BR>";
+
+	
+		//Execute the SQL		
+		$result=mysqli_query($this->DB->dbConnection, $sql);
+	
+		//SQL Error
+		if (!$result) {
+
+			 $this->sErrorMessage = "TOUR014 - Failed to Delete Tour " . mysqli_error($this->DB->dbConnection);
+			 return FALSE;
+		}
+		else 
+		{
+			return TRUE;	
+		}
+		
+		if (!$this->DB->closeDB())
+		{
+			$this->sErrorMessage = "TOUR015 -  FAILED TO CLOSE DB: ";
+			return FALSE;
+		}
+	
+	}
+
+	/*
+	 ********************************************************************************
+	 * loadTourObject()
+	 * This function loads a given row from the TOUR table into a Expense object.  
+	 ********************************************************************************
+	*/
+	function loadTourObject(&$oTour, &$row)
+	{
+		$oTour->nTourID = $row['TOUR_ID'];			
+		$oTour->sTourName = $row['TOUR_NAME'];	
+		$oTour->dtTourStartDate = $row['TOUR_START_DATE'];	
+		$oTour->dtTourEndDate = $row['TOUR_END_DATE'];	
+		$oTour->sNotes = $row['NOTES'];	
+		$oTour->dtLastUpdate = $row['LAST_UPDATE'];			
+	}	
+	
+		/*
+	 ********************************************************************************
+	 * escapeSpecialChars()
+	 * This function escapes any special characters in the objects properties
+	 * prior to a DB update.  The DB connection must be established prior to 
+	 * calling this function.  
+	 ********************************************************************************
+	*/
+	function escapeSpecialChars()
+	{
+		$this->sTourName = mysqli_real_escape_string($this->DB->dbConnection,$this->sTourName);	
+		$this->sNotes = mysqli_real_escape_string($this->DB->dbConnection,$this->sNotes);	
+
+	}
+
+
+}
+	
+?>

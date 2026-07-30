@@ -1,0 +1,1099 @@
+<?php
+/*
+*******************************************************************
+class_Performance.php
+This PHP file defines Performance object class
+NOTES
+Date        Change
+-------------------------------------------------------------
+2015-06-02	Change SQL to fuzzy search for Notes
+2015-10-18  Added getNumberOfPerformances() and executeSQL()
+2015-12-19	Refactored and removed unneeded includes
+2016-08-08	Added Or logic, fuzzy search for city and performance year
+*******************************************************************
+*/	
+
+//include DB Class		
+include_once (CLASS_DIR . "/class_DB.php");
+
+//include Error Class
+include_once (CLASS_DIR . "/class_Error.php");
+
+class Performance
+{
+
+	var $DB;
+
+	//PERFORMANCE Table Values
+	var $nPerformanceID = 0;
+	var $sPerformanceName = NULL;
+	var $sPerformanceWebsite = NULL;
+	var $dtPerformanceDate = NULL;
+	var $sPerformanceTime = NULL;
+	var $bFuturePerformances = FALSE;
+	var $sLocation = NULL;
+	var $sLocationWebsite = NULL;
+	var $sLocationAddr1 = NULL;
+	var $sLocationAddr2 = NULL;
+	var $sLocationCity = NULL;
+	var $sLocationState = NULL;
+	var $sLocationZip = NULL;
+	var $sDescription = NULL;
+	var $sAdmission = NULL;
+	var $nTourID = NULL;
+	var $sContactName = NULL;
+	var $sContactEmail = NULL;
+	var $sContactPhone = NULL;
+	var $sPhotoAlbum = NULL;
+	var $sVideoURL = NULL;
+	var $sContract = NULL;
+	var $sAirfare = NULL;
+	var $sHotel = NULL;
+	var $sRentalCar = NULL;
+	var $dtBookedDate = NULL;
+	var $nBookedAmount = NULL;
+	var $sNotes = NULL;
+	var $dtLastUpdate = NULL;
+	var $nPerformanceYear = 0;
+	var $bBooked = NULL;
+
+	var $nExcludeTourID = NULL;
+	var $dtStartDate = NULL;
+	var $dtEndDate = NULL;
+	
+	//Booleans used in Searching
+	var $bFuzzyNameSearch = FALSE;
+	var $bFuzzyLocationSearch = FALSE;
+	var $bFuzzyCitySearch = FALSE;
+	var $bOrSearch = FALSE;
+
+	var $sErrorMessage = "";
+
+	//Performance Type Object for the Performance Type of this Performance
+	var $thisPerformance;
+
+	/*****************************
+	 * Arrays of Related Objects *
+	 *****************************/
+	//Performance Records matching search criteria
+	var $aPerformanceRecords = array();
+	//Performance Errors
+	var $aPerformanceErrors = array();
+	//Performance Years
+	var $aPerformanceYears = array();
+	//Performance Months
+	var $aPerformanceMonths = array();
+	
+
+	//Constructor
+   function __construct() 
+   {
+		$this->DB = new Database();
+   }
+  
+
+	/*
+	 ********************************************************************************
+	 * getPerformance()
+	 * 
+	 * This function retrieves Performance data based on data in the properites and
+	 * returns an array of Performance Objects
+	 ********************************************************************************
+	*/
+	function getPerformance()
+	{
+
+	
+		$nFoundRecordCount = 0;
+			
+		$nFieldCount = 0;
+		$bWhereClause = false;
+		
+		$this->aPerformanceRecords = array();
+		
+		//Begin the SQL SELECT STATEMENT (Go ahead and get some basic information about the product type)
+		$sql =	"SELECT PERFORMANCE.* ";
+		$sql .= "  FROM PERFORMANCE ";
+		   
+		$this->buildWhereClause($sql);   
+
+//DEBUG
+//echo "SQL=". $sql . "<BR>";
+
+							
+		//Open the DB
+		if (!$this->DB->openDB()) 
+		{
+			$this->sErrorMessage = "PRF001 - FAILED TO OPEN DB: " . $this->DB->dbError;
+			return FALSE;
+		}
+
+		//Execute the SQL		
+		$result=mysqli_query($this->DB->dbConnection,$sql);
+
+		if (!$result) {
+
+			 $this->sErrorMessage = "PRF002 - " . mysqli_error($this->DB->dbConnection);
+			 $this->DB->closeDB();
+			 return FALSE;
+		}
+		else 
+		{
+
+			$iPerformanceCount = 0;
+
+			while($row = mysqli_fetch_array($result))
+			{
+				$oNextPerformance = new Performance();
+				
+				//Load each product into a Performance Object
+				$this->loadPerformanceObject($oNextPerformance, $row);
+
+				//Then add the object to the array of found products
+				$this->aPerformanceRecords[$iPerformanceCount] = $oNextPerformance;
+				
+				$iPerformanceCount++;
+
+			}
+			$this->DB->closeDB();
+			return TRUE;
+
+		}
+
+	}
+
+	/*
+	 ********************************************************************************
+	 * getNextPerformance()
+	 * 
+	 * This function the next upcoming performance 
+	 ********************************************************************************
+	*/
+	function getNextPerformance()
+	{
+		$sql =	"SELECT PERFORMANCE.* ";
+		$sql .= "  FROM PERFORMANCE ";
+		$sql .=	" WHERE PERFORMANCE_DATE >= CURRENT_DATE ";
+		$sql .=	" ORDER BY PERFORMANCE_DATE ASC, ";
+		$sql .=	"       PERFORMANCE_TIME ASC ";
+		$sql .=	"       LIMIT 1 ";
+		
+//DEBUG
+//echo "SQL=". $sql . "<BR>";
+							
+		//Open the DB
+		if (!$this->DB->openDB()) 
+		{
+			$this->sErrorMessage = "PRF011 - FAILED TO OPEN DB: " . $this->DB->dbError;
+			return FALSE;
+		}
+
+		//Execute the SQL		
+		$result=mysqli_query($this->DB->dbConnection,$sql);
+
+//SQL Error
+		if (!$result) {
+
+			 $this->sErrorMessage = "PRF012 - " . mysqli_error($this->DB->dbConnection);
+			 $this->DB->closeDB();
+			 return FALSE;
+		}
+		else 
+		{
+
+			$iPerformanceCount = 0;
+
+			while($row = mysqli_fetch_array($result))
+			{
+
+				$oNextPerformance = new Performance();
+				
+				//Load each product into a Performance Object
+				$this->loadPerformanceObject($oNextPerformance, $row);
+
+				//Then add the object to the array of found products
+				$this->aPerformanceRecords[$iPerformanceCount] = $oNextPerformance;
+				
+				$iPerformanceCount++;
+			}
+		
+			$this->DB->closeDB();
+			return TRUE;
+
+		}
+	}
+
+	/*
+	 ********************************************************************************
+	 * getNumberOfPerformances()
+	 * 
+	 * This function retrieves the number of performances matching values in the 
+	 * properites.  It returns the number of matching performance records or a -1
+	 * if there is a failure
+	 ********************************************************************************
+	*/
+	function getNumberOfPerformances()
+	{
+
+		$this->aPerformanceRecords = array();
+		
+		//Begin the SQL SELECT STATEMENT 
+		$sql =	"SELECT COUNT(*) AS PERFORMANCE_COUNT ";
+		$sql .= "  FROM PERFORMANCE ";
+		//$sql .=	" WHERE 1=1 ";
+
+		$this->buildWhereClause($sql);   
+
+//DEBUG
+//echo "SQL=". $sql . "<BR>";
+							
+		if(!$this->executeSQL($sql,$result))
+		{
+			return -1;
+		}
+		else
+		{
+			$row = mysqli_fetch_array($result);
+			
+			$nNumberOfPerformances = $row['PERFORMANCE_COUNT'];
+		
+			$this->DB->closeDB();
+			return $nNumberOfPerformances;
+	
+		}
+
+	}
+
+	/*
+	 ********************************************************************************
+	 * getDistinctPerformanceYears()
+	 * 
+	 * This function gets all the distinct performance years 
+	 ********************************************************************************
+	*/
+	function getDistinctPerformanceYears()
+	{
+
+		$this->aPerformanceYears = array();
+		
+		$sql=	"SELECT DISTINCT(YEAR(PERFORMANCE_DATE)) AS PERFORMANCE_YEAR ";
+		$sql .= "  FROM PERFORMANCE";
+		$sql .= " ORDER BY PERFORMANCE_YEAR ASC";
+
+
+//DEBUG
+//echo "SQL=". $sql . "<BR>";
+							
+		//Open the DB
+		if (!$this->DB->openDB()) 
+		{
+			$this->sErrorMessage = "PRF013 - FAILED TO OPEN DB: " . $this->DB->dbError;
+			return FALSE;
+		}
+
+		//Execute the SQL		
+		$result=mysqli_query($this->DB->dbConnection,$sql);
+
+//SQL Error
+		if (!$result) {
+
+			 $this->sErrorMessage = "PRF014 - " . mysqli_error($this->DB->dbConnection);
+			 $this->DB->closeDB();
+			 return FALSE;
+		}
+		else 
+		{
+
+			$iPerformanceYearIndex = 0;
+
+			while($row = mysqli_fetch_array($result))
+			{
+				$this->aPerformanceYears[$iPerformanceYearIndex] = $row['PERFORMANCE_YEAR'];
+				$iPerformanceYearIndex++;
+			}
+		
+			$this->DB->closeDB();
+			return TRUE;
+
+		}
+	}
+
+	/*
+	 ********************************************************************************
+	 * getDistinctPerformanceMonths()
+	 * 
+	 * This function gets all the distinct performance months for a given year 
+	 ********************************************************************************
+	*/
+	function getDistinctPerformanceMonths($nPerformanceYear)
+	{
+
+		$this->aPerformanceMonths = array();
+		
+	$sql=	"SELECT DISTINCT(MONTHNAME(PERFORMANCE_DATE)) AS PERFORMANCE_MONTH, ";
+	$sql .= "       MONTH(PERFORMANCE_DATE) AS PERF_MONTH_NUMBER";
+	$sql .= "  FROM PERFORMANCE";
+	$sql .= " WHERE YEAR(PERFORMANCE_DATE) = " . $nPerformanceYear;
+	$sql .= " ORDER BY PERF_MONTH_NUMBER ASC";
+
+
+//DEBUG
+//echo "SQL=". $sql . "<BR>";
+							
+		//Open the DB
+		if (!$this->DB->openDB()) 
+		{
+			$this->sErrorMessage = "PRF015 - FAILED TO OPEN DB: " . $this->DB->dbError;
+			return FALSE;
+		}
+
+		//Execute the SQL		
+		$result=mysqli_query($this->DB->dbConnection,$sql);
+
+//SQL Error
+		if (!$result) {
+
+			 $this->sErrorMessage = "PRF016 - " . mysqli_error($this->DB->dbConnection);
+			 $this->DB->closeDB();
+			 return FALSE;
+		}
+		else 
+		{
+
+			$iPerformanceMonthIndex = 0;
+
+			while($row = mysqli_fetch_array($result))
+			{
+
+				$this->aPerformanceMonths[$iPerformanceMonthIndex]['MONTH_NUMBER'] = $row['PERF_MONTH_NUMBER'];
+				$this->aPerformanceMonths[$iPerformanceMonthIndex]['MONTH_NAME'] = $row['PERFORMANCE_MONTH'];
+				
+				$iPerformanceMonthIndex++;
+			}
+		
+			$this->DB->closeDB();
+			return TRUE;
+
+		}
+	}
+
+	/*
+	 ********************************************************************************
+	 * buildWhereClause()
+	 * 
+	 * This function builds a where clause for retrieving Performance records  
+	 ********************************************************************************
+	*/
+	function buildWhereClause(&$sql)
+	{
+		$sAndOr = "AND";
+		if ($this->bOrSearch)
+		{
+			$sql .=	" WHERE 1=0 ";
+			$sAndOr = "OR";
+		}
+		else
+		{
+			$sql .=	" WHERE 1=1 ";		
+		}
+
+
+		//If a specific Performance ID is being searched, match on the ID
+		if ($this->nPerformanceID > 0)
+		{
+			$sql .= " {$sAndOr} PERFORMANCE_ID = {$this->nPerformanceID}";
+		}
+		else
+		{
+		//Otherwise build an SQL statement based on the values in the properties
+			
+			// ********************
+			// * PERFORMANCE NAME *
+			// ********************
+			if (!empty($this->sPerformanceName))
+			{
+				//If the Fuzzy Name Search flag is set, look for the pattern anywhere in the name
+				if ($this->bFuzzyNameSearch)
+				{
+					$sql .= " {$sAndOr} PERFORMANCE_NAME LIKE '%{$this->sPerformanceName}%'";
+				}
+				else
+				{
+					$sql .= " {$sAndOr} PERFORMANCE_NAME = '{$this->sPerformanceName}'";
+				}
+			}
+			
+			// ***********************
+			// * PERFORMANCE_WEBSITE *
+			// ***********************
+			if (!empty($this->sPerformaneWebsite))
+			{
+				$sql .= " {$sAndOr} PERFORMANCE_WEBSITE LIKE '%{$this->sPerformanceWebsite}'";
+			}	
+			
+			// ********************
+			// * PERFORMANCE_DATE *
+			// ********************
+			if (!empty($this->dtPerformanceDate))
+			{
+				$sql .= " {$sAndOr} PERFORMANCE_DATE LIKE '{$this->dtPerformanceDate}%'";
+			}
+			else
+			{
+				//***********************
+				//* FUTURE PERFORMANCES *
+				//***********************
+				if($this->bFuturePerformances)
+				{
+					$sql .= " {$sAndOr} PERFORMANCE_DATE > NOW()";
+				}
+			}	
+							
+			// ********************
+			// * PERFORMANCE YEAR *
+			// ********************
+			if (!empty($this->nPerformanceYear))
+			{
+				$sql .= " {$sAndOr} YEAR(PERFORMANCE_DATE) = {$this->nPerformanceYear}";
+			}
+
+			// **************
+			// * START DATE *
+			// **************
+			if (!empty($this->dtStartDate))
+			{
+				$sql .= " {$sAndOr} PERFORMANCE_DATE >= '{$this->dtStartDate}'";
+			}
+
+			// ************
+			// * END DATE *
+			// ************
+			if (!empty($this->dtEndDate))
+			{
+				$sql .= " {$sAndOr} PERFORMANCE_DATE <= '{$this->dtEndDate}'";
+			}
+
+			// ********************
+			// * PERFORMANCE_TIME *
+			// ********************
+			if (!empty($this->sPerformanceTime))
+			{
+				$sql .= " {$sAndOr} PERFORMANCE_TIME = '{$this->sPerformanceTime}'";
+			}	
+
+			// ************
+			// * LOCATION *
+			// ************
+			if (!empty($this->sLocation))
+			{
+				//If the Fuzzy Name Search flag is set, look for the pattern anywhere in the name
+				if ($this->bFuzzyLocationSearch)
+				{
+					$sql .= " {$sAndOr} LOCATION LIKE '%{$this->sLocation}%'";
+				}
+				else
+				{
+					$sql .= " {$sAndOr} LOCATION = '{$this->sLocation}'";
+				}
+			}	
+
+			// ********************
+			// * LOCATION_WEBSITE *
+			// ********************
+			if (!empty($this->sLocationWebsite))
+			{
+				$sql .= " {$sAndOr} LOCATION_WEBSITE = '{$this->sLocationWebsite}'";
+			}	
+
+			// ******************
+			// * LOCATION_ADDR1 *
+			// ******************
+			if (!empty($this->sLocationAddr1))
+			{
+				$sql .= " {$sAndOr} LOCATION_ADDR1 = '{$this->sLocationAddr1}'";
+			}	
+
+			// ******************
+			// * LOCATION_ADDR2 *
+			// ******************
+			if (!empty($this->sLocationAddr2))
+			{
+				$sql .= " {$sAndOr} LOCATION_ADDR2 = '{$this->sLocationAddr2}'";
+			}	
+			
+			// ******************
+			// * LOCATION_CITY *
+			// ******************
+			if (!empty($this->sLocationCity))
+			{
+			
+				if ($this->bFuzzyCitySearch)
+				{
+					$sql .= " {$sAndOr} LOCATION_CITY LIKE '%{$this->sLocationCity}%'";
+				}
+				else
+				{
+					$sql .= " {$sAndOr} LOCATION_CITY = '{$this->sLocationCity}'";
+				}
+			}	
+		
+			// ******************
+			// * LOCATION_STATE *
+			// ******************
+			if (!empty($this->sLocationState))
+			{
+				$sql .= " {$sAndOr} LOCATION_STATE = '{$this->sLocationState}'";
+			}	
+		
+			// ****************
+			// * LOCATION_ZIP *
+			// ****************
+			if (!empty($this->sLocationZip))
+			{
+				$sql .= " {$sAndOr} LOCATION_ZIP = '{$this->sLocationZip}'";
+			}	
+		
+			// ***************
+			// * DESCRIPTION *
+			// ***************
+			if (!empty($this->sDescription))
+			{
+				$sql .= " {$sAndOr} DESCRIPTION LIKE '%{$this->sDescription}%'";
+			}	
+
+			// *************
+			// * ADMISSION *
+			// *************
+			if (!empty($this->sAdmission))
+			{
+				$sql .= " {$sAndOr} ADMISSION = '{$this->sAdmission}'";
+			}	
+
+			// *************
+			// * TOUR_ID   *
+			// *************
+			if ($this->nTourID > 0)
+			{
+				$sql .= " {$sAndOr} TOUR_ID = {$this->nTourID}";
+			}
+			if ($this->nExcludeTourID > 0)
+			{
+				$sql .= " AND (ISNULL(TOUR_ID) OR TOUR_ID <> {$this->nExcludeTourID})";
+			}
+
+
+			// ****************
+			// * CONTACT_NAME *
+			// ****************
+			if (!empty($this->sContactName))
+			{
+				$sql .= " {$sAndOr} CONTACT_NAME = '{$this->sContactName}'";
+			}	
+
+			// *****************
+			// * CONTACT_EMAIL *
+			// *****************
+			if (!empty($this->sContactEmail))
+			{
+				$sql .= " {$sAndOr} CONTACT_EMAIL = '{$this->sContactEmail}'";
+			}	
+
+			// *****************
+			// * CONTACT_PHONE *
+			// *****************
+			if (!empty($this->sContactPhone))
+			{
+				$sql .= " {$sAndOr} CONTACT_PHONE = '{$this->sContactPhone}'";
+			}	
+
+			// ***************
+			// * PHOTO_ALBUM *
+			// ***************
+			if (!empty($this->sPhotoAlbum))
+			{
+				$sql .= " {$sAndOr} PHOTO_ALBUM = '{$this->sPhotoAlbum}'";
+			}	
+
+			// *************
+			// * VIDEO_URL *
+			// *************
+			if (!empty($this->sVideoURL))
+			{
+				$sql .= " {$sAndOr} VIDEO_URL = '{$this->sVideoURL}'";
+			}	
+
+			// *************
+			// * CONTRACT *
+			// *************
+			if (!empty($this->sContract))
+			{
+				$sql .= " {$sAndOr} CONTRACT = '{$this->sContract}'";
+			}	
+
+			// ***********
+			// * AIRFARE *
+			// ***********
+			if (!empty($this->sAirfare))
+			{
+				$sql .= " {$sAndOr} AIRFARE = '{$this->sAirfare}'";
+			}	
+
+			// *********
+			// * HOTEL *
+			// *********
+			if (!empty($this->sHotel))
+			{
+				$sql .= " {$sAndOr} HOTEL = '{$this->sHotel}'";
+			}	
+
+			// **************
+			// * RENTAL_CAR *
+			// *************
+			if (!empty($this->sRentalCar))
+			{
+				$sql .= " {$sAndOr} RENTAL_CAR = '{$this->sRentalCar}'";
+			}	
+
+			// ***************
+			// * BOOKED_DATE *
+			// ***************
+			if (!empty($this->dtBookedDate))
+			{
+				$sql .= " {$sAndOr} BOOKED_DATE = '{$this->dtBookedDate}'";
+			}	
+
+			// *****************
+			// * BOOKED_AMOUNT *
+			// *****************
+			if (!empty($this->nBookedAmount))
+			{
+				$sql .= " {$sAndOr} BOOKED_AMOUNT = '{$this->nBookedAmount}'";
+			}	
+
+			// *********
+			// * NOTES *
+			// *********
+			if (!empty($this->sNotes))
+			{
+				$sql .= " {$sAndOr} NOTES LIKE '%{$this->sNotes}%'";
+			}	
+
+			// *************
+			// * BOOKED *
+			// *************
+			if (!is_null($this->bBooked))
+			{
+				if($this->bBooked)
+				{
+					$sql .= " {$sAndOr} BOOKED_DATE > '0000-00-00' ";
+				}
+				else
+				{
+					$sql .= " (AND BOOKED_DATE >= '0000-00-00' OR BOOKED_DATE = NULL) ";
+				}
+			}	
+
+			// ************
+			// * ORDER BY *
+			// ************
+			//ALPHABETICAL BY NAME
+			$sql .= " ORDER BY PERFORMANCE_DATE, PERFORMANCE_TIME";	
+		}
+//DEBUG
+//echo "SQL=". $sql . "<BR>";
+
+	}
+
+	/*
+	 ********************************************************************************
+	 * executeSQL()
+	 * 
+	 * This function opens a DB connection and attempts to execute an SQL statement 
+	 ********************************************************************************
+	*/
+	function executeSQL(&$sql, &$result)
+	{
+		//Open the DB
+		if (!$this->DB->openDB()) 
+		{
+			$this->sErrorMessage = "PRF001 - FAILED TO OPEN DB: " . $this->DB->dbError;
+			return false;
+		}
+
+		//Execute the SQL		
+		$result=mysqli_query($this->DB->dbConnection,$sql);
+
+		if (!$result) 
+		{
+
+			 $this->sErrorMessage = "PRF002 - " . mysqli_error($this->DB->dbConnection);
+			 $this->DB->closeDB();
+
+			 return false;
+		}
+		else
+		{
+			return true;
+		}
+	}
+
+	/*
+	 ********************************************************************************
+	 * insertPerformance()
+	 * 
+	 * This function inserts a PERFORMANCE record 
+	 ********************************************************************************
+	*/
+	function insertPerformance()
+	{
+		//Open the DB
+		if (!$this->DB->openDB()) 
+		{
+			$this->sErrorMessage = "PRF003 - FAILED TO OPEN DB: ";
+			return FALSE;
+		}
+		
+		$this->escapeSpecialChars();
+			
+		$sql =	" INSERT INTO PERFORMANCE";
+		$sql .= " (PERFORMANCE_NAME,";		
+		$sql .= "  PERFORMANCE_WEBSITE,";		
+		$sql .= "  PERFORMANCE_DATE,";		
+		$sql .= "  PERFORMANCE_TIME,";		
+		$sql .= "  LOCATION,";		
+		$sql .= "  LOCATION_WEBSITE,";		
+		$sql .= "  LOCATION_ADDR1,";		
+		$sql .= "  LOCATION_ADDR2,";		
+		$sql .= "  LOCATION_CITY,";		
+		$sql .= "  LOCATION_STATE,";		
+		$sql .= "  LOCATION_ZIP,";		
+		$sql .= "  DESCRIPTION,";		
+		$sql .= "  ADMISSION,";		
+		$sql .= "  TOUR_ID,";		
+		$sql .= "  CONTACT_NAME,";		
+		$sql .= "  CONTACT_EMAIL,";
+		$sql .= "  CONTACT_PHONE,";		
+		$sql .= "  PHOTO_ALBUM,";	
+		$sql .= "  VIDEO_URL,";	
+		$sql .= "  CONTRACT,";	
+		$sql .= "  AIRFARE,";	
+		$sql .= "  HOTEL,";	
+		$sql .= "  RENTAL_CAR,";	
+		$sql .= "  BOOKED_DATE,";	
+		$sql .= "  BOOKED_AMOUNT,";	
+		$sql .= "  NOTES,";	
+		$sql .= "  LAST_UPDATE)";		
+
+		$sql .= " VALUES (";
+		$sql .= "'" . $this->sPerformanceName . "',";	
+		$sql .= "'" . $this->sPerformanceWebsite . "',";	
+		$sql .= "'" . $this->dtPerformanceDate . "',";	
+		$sql .= "'" . $this->sPerformanceTime . "',";	
+		$sql .= "'" . $this->sLocation . "',";	
+		$sql .= "'" . $this->sLocationWebsite . "',";	
+		$sql .= "'" . $this->sLocationAddr1 . "',";	
+		$sql .= "'" . $this->sLocationAddr2 . "',";	
+		$sql .= "'" . $this->sLocationCity . "',";	
+		$sql .= "'" . $this->sLocationState . "',";	
+		$sql .= "'" . $this->sLocationZip . "',";	
+		$sql .= "'" . $this->sDescription . "',";	
+		$sql .= "'" . $this->sAdmission . "',";	
+		if (is_numeric($this->nTourID))
+		{
+			$sql .=  $this->nTourID . ",";	
+		}
+		else
+		{
+			$sql .= "NULL,";	
+		}
+		$sql .= "'" . $this->sContactName . "',";	
+		$sql .= "'" . $this->sContactEmail . "',";	
+		$sql .= "'" . $this->sContactPhone . "',";	
+		$sql .= "'" . $this->sPhotoAlbum . "',";	
+		$sql .= "'" . $this->sVideoURL . "',";	
+		$sql .= "'" . $this->sContract . "',";	
+		$sql .= "'" . $this->sAirfare . "',";	
+		$sql .= "'" . $this->sHotel . "',";	
+		$sql .= "'" . $this->sRentalCar . "',";	
+		$sql .= "'" . $this->dtBookedDate . "',";	
+		if (is_numeric($this->nBookedAmount))
+		{
+			$sql .=  $this->nBookedAmount . ",";	
+		}
+		else
+		{
+			$sql .= "NULL,";	
+		}
+		$sql .= "'" . $this->sNotes . "',";	
+		$sql .= "SYSDATE()";	
+		$sql .= ")";	
+		
+//DEBUG
+//echo "SQL=". $sql . "<BR>";
+
+	
+		//Execute the SQL		
+		$result=mysqli_query($this->DB->dbConnection,$sql);
+
+//SQL Error
+		if (!$result) 
+		{
+
+			 $this->sErrorMessage = "PRF004 - FAILED TO INSERT PERFORMANCE RECORD - " . mysqli_error($this->DB->dbConnection);
+			 return FALSE;
+		}
+		else 
+		{
+			$this->nPerformanceID = mysqli_insert_id($this->DB->dbConnection);
+			return TRUE;	
+		}
+		
+
+	}	
+
+
+	/*
+	 ********************************************************************************
+	 * updatePerformance()
+	 * 
+	 * This Updates a PERFORMANCE record
+	 ********************************************************************************
+	*/
+	function updatePerformance()
+	{
+	
+		if ($this->nPerformanceID > 0)
+		{
+
+			//Open the DB
+			if (!$this->DB->openDB()) 
+			{
+				$this->sErrorMessage = "PRF005 - FAILED TO OPEN DB: ";
+				return FALSE;
+			}
+			
+			$this->escapeSpecialChars();
+
+			$sql =	" UPDATE PERFORMANCE ";
+			$sql .= " SET PERFORMANCE_NAME = '" . $this->sPerformanceName . "'";
+			$sql .= ", PERFORMANCE_WEBSITE = '" .  $this->sPerformanceWebsite . "'";
+			$sql .= ", PERFORMANCE_DATE =  '" . $this->dtPerformanceDate . "'";
+			$sql .= ", PERFORMANCE_TIME = '" . $this->sPerformanceTime . "'";
+			$sql .= ", LOCATION = '" . $this->sLocation . "'";
+			$sql .= ", LOCATION_WEBSITE = '" . $this->sLocationWebsite . "'";
+			$sql .= ", LOCATION_ADDR1 = '" . $this->sLocationAddr1 . "'";
+			$sql .= ", LOCATION_ADDR2 = '" . $this->sLocationAddr2 . "'";
+			$sql .= ", LOCATION_CITY = '" . $this->sLocationCity . "'";
+			$sql .= ", LOCATION_STATE = '" . $this->sLocationState . "'";
+			$sql .= ", LOCATION_ZIP = '" . $this->sLocationZip . "'";
+			$sql .= ", DESCRIPTION = '" . $this->sDescription . "'";
+			$sql .= ", ADMISSION = '" . $this->sAdmission . "'";
+			if(is_numeric($this->nTourID))
+			{
+				$sql .= ", TOUR_ID = " . $this->nTourID;
+			}
+			else
+			{
+				$sql .= ", TOUR_ID = NULL ";
+			}
+			$sql .= ", CONTACT_NAME = '" . $this->sContactName . "'";
+			$sql .= ", CONTACT_EMAIL = '" . $this->sContactEmail . "'";
+			$sql .= ", CONTACT_PHONE = '" . $this->sContactPhone . "'";
+			$sql .= ", PHOTO_ALBUM = '" . $this->sPhotoAlbum . "'";
+			$sql .= ", VIDEO_URL = '" . $this->sVideoURL . "'";
+			$sql .= ", CONTRACT = '" . $this->sContract . "'";
+			$sql .= ", AIRFARE = '" . $this->sAirfare . "'";
+			$sql .= ", HOTEL = '" . $this->sHotel . "'";
+			$sql .= ", RENTAL_CAR = '" . $this->sRentalCar . "'";
+			
+			if(is_numeric($this->nBookedAmount))
+			{
+				$sql .= ", BOOKED_AMOUNT = " . $this->nBookedAmount;
+			}
+			else
+			{
+				$sql .= ", BOOKED_AMOUNT = NULL ";
+			}
+			
+			if (!empty($this->dtBookedDate))
+			{
+				$sql .= ", BOOKED_DATE = '" . $this->dtBookedDate . "'";
+			}
+			else
+			{
+				$sql .= ", BOOKED_DATE = NULL";
+			}
+			
+			$sql .= ", NOTES = '" . $this->sNotes . "'";
+			$sql .= ", LAST_UPDATE = SYSDATE()";
+			$sql .= " WHERE PERFORMANCE_ID  = " . $this->nPerformanceID;
+		
+//DEBUG
+//echo "<BR>SQL=". $sql . "<BR>";
+
+			
+			//Execute the SQL		
+			$result=mysqli_query($this->DB->dbConnection,$sql);
+
+//SQL Error
+			if (!$result) {	
+
+				 $this->sErrorMessage = "PRF006 - FAILED TO UPDATE PERFORMANCE: " . mysqli_error($this->DB->dbConnection);
+				 return FALSE;
+			}
+			else 
+			{
+				return TRUE;	
+			}
+		
+		}
+		else
+		{
+			 $this->sErrorMessage = "PRF010 - NO PERFORMANCE_ID SPECIFIED ";
+			 return FALSE;
+		}
+	}
+
+	/*
+	 ********************************************************************************
+	 * deletePerformance()
+	 * 
+	 * This function deletes a Performance record
+	 ********************************************************************************
+	*/
+	function deletePerformance()
+	{
+		if ($this->nPerformanceID > 0)
+		{
+	
+			$sql =	" DELETE FROM PERFORMANCE";
+			$sql .= " WHERE PERFORMANCE_ID = " . $this->nPerformanceID;
+		
+//DEBUG
+//echo "SQL=". $sql . "<BR>";
+
+			//Open the DB
+			if (!$this->DB->openDB()) 
+			{
+				$this->sErrorMessage = "PRF007 - FAILED TO OPEN DB: ";
+				return FALSE;
+			}		
+
+			//Execute the SQL		
+			$result=mysqli_query($this->DB->dbConnection,$sql);
+
+//SQL Error
+			if (!$result)
+			{	
+				 $this->sErrorMessage = "PRF008 - FAILED TO DELETE PERFORMANCE: " . mysqli_error($this->DB->dbConnection);
+				 return FALSE;
+			}
+			else 
+			{
+				return TRUE;	
+			}
+
+		}
+		else
+		{
+			$this->sErrorMessage = "PRF009 - CAN NOT DELETE PERFORMANCE BECAUSE NO PERFORMANCE ID SUPPLIED. ";
+			return FALSE;
+		}
+	}
+
+	/*
+	 ********************************************************************************
+	 * loadPerformanceObject()
+	 * This function loads a given row from the PERFORMANCE table into a Performance object.  
+	 ********************************************************************************
+	*/
+	function loadPerformanceObject(&$oPerformance, &$row)
+	{
+
+			$oPerformance->nPerformanceID = $row['PERFORMANCE_ID'];			
+			$oPerformance->sPerformanceName = $row['PERFORMANCE_NAME'];
+			$oPerformance->sPerformanceWebsite = $row['PERFORMANCE_WEBSITE'];			
+			$oPerformance->dtPerformanceDate = $row['PERFORMANCE_DATE'];			
+			$oPerformance->sPerformanceTime = $row['PERFORMANCE_TIME'];			
+			$oPerformance->sLocation = $row['LOCATION'];			
+			$oPerformance->sLocationWebsite = $row['LOCATION_WEBSITE'];			
+			$oPerformance->sLocationAddr1 = $row['LOCATION_ADDR1'];			
+			$oPerformance->sLocationAddr2 = $row['LOCATION_ADDR2'];			
+			$oPerformance->sLocationCity = $row['LOCATION_CITY'];			
+			$oPerformance->sLocationState = $row['LOCATION_STATE'];			
+			$oPerformance->sLocationZip = $row['LOCATION_ZIP'];			
+			$oPerformance->sDescription = $row['DESCRIPTION'];			
+			$oPerformance->sAdmission = $row['ADMISSION'];		
+			$oPerformance->nTourID = $row['TOUR_ID'];			
+			$oPerformance->sContactName = $row['CONTACT_NAME'];			
+			$oPerformance->sContactEmail = $row['CONTACT_EMAIL'];			
+			$oPerformance->sContactPhone = $row['CONTACT_PHONE'];			
+			$oPerformance->sPhotoAlbum = $row['PHOTO_ALBUM'];			
+			$oPerformance->sVideoURL = $row['VIDEO_URL'];			
+			$oPerformance->sContract = $row['CONTRACT'];			
+			$oPerformance->sAirfare = $row['AIRFARE'];			
+			$oPerformance->sHotel = $row['HOTEL'];			
+			$oPerformance->sRentalCar = $row['RENTAL_CAR'];			
+			$oPerformance->dtBookedDate = $row['BOOKED_DATE'];			
+			$oPerformance->nBookedAmount = $row['BOOKED_AMOUNT'];			
+			$oPerformance->sNotes = $row['NOTES'];			
+			$oPerformance->dtLastUpdate= $row['LAST_UPDATE'];			
+			if($oPerformance->dtBookedDate > '0000-00-00' && !empty($oPerformance->dtBookedDate))
+			{
+				$oPerformance->bBooked = TRUE;
+			}
+			else
+			{
+				$oPerformance->bBooked = FALSE;
+			}
+			$oPerformance->nPerformanceYear = substr($oPerformance->dtPerformanceDate, 0, 4);
+
+	}
+
+	/*
+	 ********************************************************************************
+	 * escapeSpecialChars()
+	 * This function escapes any special characters in the objects properties
+	 * prior to a DB update.  The DB connection must be established prior to 
+	 * calling this function.  
+	 ********************************************************************************
+	*/
+	function escapeSpecialChars()
+	{
+	
+ 	
+		$this->sPerformanceName = mysqli_real_escape_string($this->DB->dbConnection,$this->sPerformanceName);	
+		$this->sPerformanceWebsite = mysqli_real_escape_string($this->DB->dbConnection,$this->sPerformanceWebsite);	
+		$this->sPerformanceTime = mysqli_real_escape_string($this->DB->dbConnection,$this->sPerformanceTime);	
+		$this->sLocation = mysqli_real_escape_string($this->DB->dbConnection,$this->sLocation);	
+		$this->sLocationWebsite = mysqli_real_escape_string($this->DB->dbConnection,$this->sLocationWebsite);	
+		$this->sLocationAddr1 = mysqli_real_escape_string($this->DB->dbConnection,$this->sLocationAddr1);	
+		$this->sLocationAddr2 = mysqli_real_escape_string($this->DB->dbConnection,$this->sLocationAddr2);	
+		$this->sLocationCity = mysqli_real_escape_string($this->DB->dbConnection,$this->sLocationCity);	
+		$this->sLocationState = mysqli_real_escape_string($this->DB->dbConnection,$this->sLocationState);	
+		$this->sLocationZip = mysqli_real_escape_string($this->DB->dbConnection,$this->sLocationZip);	
+		$this->sDescription = mysqli_real_escape_string($this->DB->dbConnection,$this->sDescription);	
+		$this->sAdmission = mysqli_real_escape_string($this->DB->dbConnection,$this->sAdmission);	
+		$this->sContactName = mysqli_real_escape_string($this->DB->dbConnection,$this->sContactName);	
+		$this->sContactEmail = mysqli_real_escape_string($this->DB->dbConnection,$this->sContactEmail);	
+		$this->sContactPhone = mysqli_real_escape_string($this->DB->dbConnection,$this->sContactPhone);	
+		$this->sPhotoAlbum = mysqli_real_escape_string($this->DB->dbConnection,$this->sPhotoAlbum);	
+		$this->sVideoURL = mysqli_real_escape_string($this->DB->dbConnection,$this->sVideoURL);	
+		$this->sNotes = mysqli_real_escape_string($this->DB->dbConnection,$this->sNotes);	
+
+	}
+	/*
+	 ********************************************************************************
+	 * getPerformanceErrors()
+	 * 
+	 * This function creates an array of Performances that have errors 
+	 ********************************************************************************
+	*/
+	function getPerformanceErrors()
+	{
+		return TRUE;		
+	}
+	
+}
+	
+?>

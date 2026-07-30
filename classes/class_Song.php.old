@@ -1,0 +1,653 @@
+<?php
+/*
+*******************************************************************
+class_Song.php
+This PHP file defines Song object class
+NOTES
+Date        Change
+-------------------------------------------------------------
+2015-12-01	Refactored and added Release Date, Run Time, ISRC, UPC
+			and Catalog Number fields
+2015-12-18	Added Artist, added AJAX call for CDs, removed rootpath 
+			and settings incldues (should be incldued in pages)
+2016-01-25	Added BMI Number and Active flag 
+*******************************************************************
+*/	
+	
+//include DB Class		
+include_once (CLASS_DIR . "/class_DB.php");
+
+//include Error Class
+include_once (CLASS_DIR . "/class_Error.php");
+
+class Song
+{
+
+	var $DB;
+
+	//Song Table Values
+	var $nSongID = 0;
+	var $nCDID = NULL;
+	var $nTrackNumber = 0;
+	var $sSongName = NULL;
+	var $sSongImage = NULL;
+	var $sSongThumbnail = NULL;
+	var $sSongDescription = NULL;
+	var $sPurcahseLink = NULL;
+	var $sLyricsHTML = NULL;
+	var $sSampleMP3 = NULL;
+	var $dtReleaseDate = NULL;
+	var $sRunTime = NULL;
+	var $sISRC = NULL;
+	var $sCatalogNumber = NULL;
+	var $sUPC = NULL;
+	var $bActive = NULL;
+	var $nBMINumber = 0;
+	var $nArtistID = NULL;
+	var $dtLastUpdate = NULL;
+	var $sOrderBy = NULL;
+	
+	//Booleans used in Searching
+	var $bFuzzyNameSearch = FALSE;
+		
+	var $sErrorMessage = "";
+
+	/*****************************
+	 * Arrays of Related Objects *
+	 *****************************/
+	//Song Records matching search criteria
+	var $aSongRecords = array();
+	//Song Errors
+	var $aSongErrors = array();
+
+	//Constructor
+	function __construct() 
+   	{
+		$this->DB = new Database();
+	}
+
+	/*
+	 ********************************************************************************
+	 * getSong()
+	 * 
+	 * This function retrieves Song data based on data in the properites and
+	 * returns an array of Song Objects
+	 ********************************************************************************
+	*/
+	function getSong()
+	{
+	
+		$this->aSongRecords = array();
+		
+		//Begin the SQL SELECT STATEMENT (Go ahead and get some basic information about the Song)
+		$sql =	"SELECT SONG.* ";
+		$sql .= "  FROM SONG ";
+		$sql .=	" WHERE 1=1 ";
+		   
+		$this->buildWhereClause($sql);
+
+//DEBUG
+//echo "SQL={$sql}<BR>";
+							
+		$result = NULL;
+		
+		if(!$this->executeSQL($sql,$result))
+		{
+			return -1;
+		}
+		else
+		{
+
+			$iSongCount = 0;
+
+			while($row = mysqli_fetch_array($result))
+			{
+
+				$oNextSong = new Song();
+				
+				//Load each product into a Song Object
+				$this->loadSongObject($oNextSong, $row);
+
+				//Then add the object to the array of found products
+				$this->aSongRecords[$iSongCount] = $oNextSong;
+				
+				$iSongCount++;
+
+			}
+		
+			$this->DB->closeDB();
+			return TRUE;
+
+		}
+
+	}
+
+	/*
+	 ********************************************************************************
+	 * getReviews()
+	 * This function returns a Review object loaded with reviews for this song  
+	 ********************************************************************************
+	*/
+	function getReviews()
+	{
+		$oReviews = new Review();
+		$oReviews->nSongID = $this->nSongID;
+		if (!$oReviews->getReview())
+		{
+			//TODO: ERROR
+		}
+		else
+		{
+			if(sizeof($oReviews->aReviewRecords) == 0)
+			{
+				$oReviews = new Review();
+				if ($this->nCDID > 0)
+				{
+					$oReviews->nCDID = $this->nCDID;
+					if (!$oReviews->getReview())
+					{
+						//TODO: ERROR
+					}
+				}
+				else if (sizeof($oReviews->aReviewRecords) < 1)
+				{
+					$oReviews->nReviewID = DEFAULT_REVIEW_ID;
+					if (!$oReviews->getReview())
+					{
+						//TODO: ERROR
+					}
+				}			
+
+			}
+		
+			
+
+			return $oReviews;
+		}
+	}
+		
+	/*
+	 ********************************************************************************
+	 * buildWhereClause()
+	 * 
+	 * This function builds a where clause for retrieving payment records 
+	 ********************************************************************************
+	*/
+	function buildWhereClause(&$sql)
+	{
+		//If a specific Song ID is being searched, match on the ID
+		if ($this->nSongID > 0)
+		{
+			$sql .= " AND SONG_ID = {$this->nSongID}";
+		}
+		else
+		{
+		//Otherwise build an SQL statement based on the values in the properties
+			
+			// *************
+			// * SONG NAME *
+			// *************
+			if (!empty($this->sSongName))
+			{
+				//If the Fuzzy Name Search flag is set, look for the pattern anywhere in the name
+				if ($this->bFuzzyNameSearch)
+				{
+					$sql .= " AND SONG_NAME LIKE '%{$this->sSongName}%'";
+				}
+				else
+				{
+					$sql .= " AND SONG_NAME = '{$this->sSongName}'";
+				}
+			}
+			
+			// *********
+			// * CD ID *
+			// *********
+//			if ($this->nCDID >= 0 && $this->nCDID <> '')
+			if ($this->nCDID == '0' || $this->nCDID > 0)
+			{
+				$sql .= " AND CD_ID = {$this->nCDID}";
+			}
+
+			// ****************
+			// * TRACK NUMBER *
+			// ****************
+			if (!empty($this->nTrackNumber))
+			{
+				$sql .= " AND TRACK_NUMBER = {$this->nTrackNumber}";
+			}
+
+			// **************
+			// * SONG IMAGE *
+			// **************
+			if (!empty($this->sSongImage))
+			{
+				$sql .= " AND SONG_IMAGE = '{$this->sSongImage}'";
+			}
+
+			// ******************
+			// * SONG THUMBNAIL *
+			// ******************
+			if (!empty($this->sSongThumbnail))
+			{
+				$sql .= " AND SONG_THUMBNAIL = '{$this->sSongThumbnail}'";
+			}
+
+			// ********************
+			// * SONG DESCRIPTION *
+			// ********************
+			if (!empty($this->sSongDescription))
+			{
+				$sql .= " AND SONG_DESCRIPTION = '{$this->sSongDescription}'";
+			}
+
+			// *****************
+			// * PURCHASE LINK *
+			// *****************
+			if (!empty($this->sPurchaseLink))
+			{
+				$sql .= " AND PURCHASE_LINK = '{$this->sPurchaseLink}'";
+			}
+
+			// ***************
+			// * LYRICS HTML *
+			// ***************
+			if (!empty($this->sLyricsHTML))
+			{
+				$sql .= " AND LYRICS_HTML = '{$this->sLyricsHTML}'";
+			}
+
+			// ****************
+			// * RELEASE DATE *
+			// ****************
+			if (!empty($this->dtReleaseDate))
+			{
+				$sql .= " AND RELEASE_DATE LIKE '%{$this->dtReleaseDate}%'";
+			}
+
+			// ************
+			// * RUN_TIME *
+			// ************
+			if (!empty($this->sRunTime))
+			{
+				$sql .= " AND RUN_TIME = '{$this->sRunTime}'";
+			}
+
+			// ********
+			// * ISRC *
+			// ********
+			if (!empty($this->sISRC))
+			{
+				$sql .= " AND ISRC LIKE '%{$this->sISRC}%'";
+			}
+
+			// ******************
+			// * CATALOG_NUMBER *
+			// ******************
+			if (!empty($this->sCatalogNumber))
+			{
+				$sql .= " AND CATALOG_NUMBER LIKE '%{$this->sCatalogNumber}%'";
+			}
+
+			// *******
+			// * UPC *
+			// *******
+			if (!empty($this->sUPC))
+			{
+				$sql .= " AND UPC LIKE '%{$this->sUPC}%'";
+			}
+			// *************
+			// * ARTIST_ID *
+			// *************
+			if (!empty($this->nArtistID))
+			{
+				$sql .= " AND ARTIST_ID = {$this->nArtistID}";
+			}
+
+			// **************
+			// * SAMPLE MP3 *
+			// **************
+			if (!empty($this->sSampleMP3))
+			{
+				$sql .= " AND SAMPLE_MP3 = '{$this->sSampleMP3}'";
+			}
+
+			// **************
+			// * BMI NUMBER *
+			// **************
+			if (!empty($this->nBMINumber))
+			{
+				$sql .= " AND BMI_NUMBER = {$this->nBMINumber}";
+			}
+
+			// **********
+			// * ACTIVE *
+			// **********
+			if (!is_null($this->bActive))
+			{
+				$sql .= " AND ACTIVE = {$this->bActive}";
+			}
+
+			// ************
+			// * ORDER BY *
+			// ************
+			//ORDER BY
+			switch($this->sOrderBy)
+			{
+				case NAME_ORDER:
+				$sql .= " ORDER BY SONG_NAME";	
+				break;
+
+				case TRACK_ORDER:
+				$sql .= " ORDER BY TRACK_NUMBER";	
+				break;
+
+				case UPDATE_ORDER:
+				$sql .= " ORDER BY LAST_UPDATE DESC";	
+				break;
+
+				case RELEASE_ORDER:
+				$sql .= " ORDER BY RELEASE_DATE DESC";	
+				break;
+				
+				default:
+				$sql .= " ORDER BY TRACK_NUMBER";
+				break;	
+
+			}
+
+		}
+	}
+
+	/*
+	 ********************************************************************************
+	 * executeSQL()
+	 * 
+	 * This function opens a DB connection and attempts to execute an SQL statement 
+	 ********************************************************************************
+	*/
+	function executeSQL(&$sql, &$result)
+	{
+		//Open the DB
+		if (!$this->DB->openDB()) 
+		{
+			$this->sErrorMessage = "SNG001 - FAILED TO OPEN DB: {$this->DB->dbError}";
+			return false;
+		}
+
+		//Execute the SQL		
+		$result=mysqli_query($this->DB->dbConnection,$sql);
+
+		if (!$result) 
+		{
+
+			 $this->sErrorMessage = "SNG002 - " . mysqli_error($this->DB->dbConnection);
+			 $this->DB->closeDB();
+
+			 return false;
+		}
+		else
+		{
+			return true;
+		}
+	}
+	
+	/*
+	 ********************************************************************************
+	 * Insert Song()
+	 * 
+	 * This function inserts a Song record 
+	 ********************************************************************************
+	*/
+	function insertSong()
+	{
+		//Open the DB
+		if (!$this->DB->openDB()) 
+		{
+			$this->sErrorMessage = "SNG003 - FAILED TO OPEN DB: ";
+			return FALSE;
+		}
+			
+		$this->escapeSpecialChars();
+		
+		$sql =	" INSERT INTO SONG";
+		$sql .= " (SONG_NAME,";		
+		$sql .= "  CD_ID,";
+		$sql .= "  TRACK_NUMBER,";
+		$sql .= "  SONG_IMAGE,";
+		$sql .= "  SONG_THUMBNAIL,";
+		$sql .= "  SONG_DESCRIPTION,";
+		$sql .= "  PURCHASE_LINK,";
+		$sql .= "  LYRICS_HTML,";
+		$sql .= "  RELEASE_DATE,";
+		$sql .= "  RUN_TIME,";
+		$sql .= "  ISRC,";
+		$sql .= "  CATALOG_NUMBER,";
+		$sql .= "  UPC,";
+		$sql .= "  ARTIST_ID,";
+		$sql .= "  SAMPLE_MP3,";
+		$sql .= "  BMI_NUMBER,";
+		$sql .= "  ACTIVE,";
+		$sql .= "  LAST_UPDATE)";		
+
+		$sql .= " VALUES (";
+		$sql .= "'{$this->sSongName}',";	
+		$sql .= "'{$this->nCDID}',";	
+		$sql .= "'{$this->nTrackNumber}',";	
+		$sql .= "'{$this->sSongImage}',";	
+		$sql .= "'{$this->sSongThumbnail}',";	
+		$sql .= "'{$this->sSongDescription}',";	
+		$sql .= "'{$this->sPurchaseLink}',";	
+		$sql .= "'{$this->sLyricsHTML}',";	
+		$sql .= "'{$this->dtReleaseDate}',";	
+		$sql .= "'{$this->sRunTime}',";	
+		$sql .= "'{$this->sISRC}',";	
+		$sql .= "'{$this->sCatalogNumber}',";	
+		$sql .= "'{$this->sUPC}',";	
+		$sql .= "{$this->nArtistID},";	
+		$sql .= "'{$this->sSampleMP3}',";	
+		$sql .= "{$this->nBMINumber},";	
+		if($this->bActive)
+		{
+			$sql .= "TRUE,";	
+		}
+		else
+		{
+			$sql .= "FALSE,";	
+		}
+		$sql .= "SYSDATE()";	
+		$sql .= ")";	
+		
+//DEBUG
+//echo "SQL={$sql}<BR>";
+
+		//Execute the SQL		
+		$result=mysqli_query($this->DB->dbConnection,$sql);
+	
+		//SQL Error
+		if (!$result) 
+		{
+
+			 $this->sErrorMessage = "SNG004 - FAILED TO INSERT Song RECORD - " . mysqli_error($this->DB->dbConnection);
+			 return FALSE;
+		}
+		else 
+		{
+			$this->nSongID = mysqli_insert_id($this->DB->dbConnection);
+			return TRUE;	
+		}
+		
+
+	}	
+
+
+	/*
+	 ********************************************************************************
+	 * updateSong()
+	 * 
+	 * This Updates a Song record
+	 ********************************************************************************
+	*/
+	function updateSong()
+	{
+	
+		if ($this->nSongID > 0)
+		{
+	
+			//Open the DB
+			if (!$this->DB->openDB()) 
+			{
+				$this->sErrorMessage = "SNG005 - FAILED TO OPEN DB: ";
+				return FALSE;
+			}
+
+			$this->escapeSpecialChars();			
+
+			$sql =	" UPDATE SONG ";
+			$sql .= "    SET SONG_NAME = '{$this->sSongName}'";
+			$sql .= "       ,CD_ID = {$this->nCDID}";
+			$sql .= "       ,TRACK_NUMBER = '{$this->nTrackNumber}'";
+			$sql .= "       ,SONG_IMAGE = '{$this->sSongImage}'";
+			$sql .= "       ,SONG_THUMBNAIL = '{$this->sSongThumbnail}'";
+			$sql .= "       ,SONG_DESCRIPTION = '{$this->sSongDescription}'";
+			$sql .= "       ,PURCHASE_LINK = '{$this->sPurchaseLink}'";
+			$sql .= "       ,LYRICS_HTML = '{$this->sLyricsHTML}'";
+			$sql .= "       ,SAMPLE_MP3 = '{$this->sSampleMP3}'";
+			$sql .= "       ,RELEASE_DATE = '{$this->dtReleaseDate}'";
+			$sql .= "       ,RUN_TIME = '{$this->sRunTime}'";
+			$sql .= "       ,ISRC = '{$this->sISRC}'";
+			$sql .= "       ,CATALOG_NUMBER = '{$this->sCatalogNumber}'";
+			$sql .= "       ,UPC = '{$this->sUPC}'";
+			$sql .= "       ,ARTIST_ID = {$this->nArtistID}";
+			$sql .= "       ,BMI_NUMBER = '{$this->nBMINumber}'";
+			if($this->bActive)
+			{
+				$sql .= "       ,ACTIVE = TRUE";
+			}
+			else
+			{
+				$sql .= "       ,ACTIVE = FALSE";
+			}
+			$sql .= "       ,LAST_UPDATE = SYSDATE()";
+			$sql .= "  WHERE SONG_ID  = {$this->nSongID}";
+		
+//DEBUG
+//echo "SQL={$sql}<BR>";
+
+			//Execute the SQL		
+			$result=mysqli_query($this->DB->dbConnection,$sql);
+	
+			//SQL Error
+			if (!$result) {	
+
+				 $this->sErrorMessage = "SNG006 - FAILED TO UPDATE Song: " . mysqli_error($this->DB->dbConnection);
+				 return FALSE;
+			}
+			else 
+			{
+				return TRUE;	
+			}
+		
+		}
+		else
+		{
+			 $this->sErrorMessage = "SNG010 - NO SONG_ID SPECIFIED ";
+			 return FALSE;
+		}
+	}
+
+	/*
+	 ********************************************************************************
+	 * deleteSong()
+	 * 
+	 * This function deletes a Song record
+	 ********************************************************************************
+	*/
+	function deleteSong()
+	{
+		if ($this->nSongID > 0)
+		{
+
+			$sql =	" DELETE FROM SONG";
+			$sql .= " WHERE SONG_ID = {$this->nSongID}";
+		
+//DEBUG
+//echo "SQL={$sql}<BR>";
+
+			//Open the DB
+			if (!$this->DB->openDB()) 
+			{
+				$this->sErrorMessage = "SNG007 - FAILED TO OPEN DB: ";
+				return FALSE;
+			}		
+
+			//Execute the SQL		
+			$result=mysqli_query($this->DB->dbConnection,$sql);
+	
+			//SQL Error
+			if (!$result)
+			{	
+				 $this->sErrorMessage = "SNG008 - FAILED TO DELETE Song: " . mysqli_error($this->DB->dbConnection);
+				 return FALSE;
+			}
+			else 
+			{
+				return TRUE;	
+			}
+
+		}
+		else
+		{
+			$this->sErrorMessage = "SNG009 - CAN NOT DELETE Song BECAUSE NO Song ID SUPPLIED. ";
+			return FALSE;
+		}
+	}
+
+	/*
+	 ********************************************************************************
+	 * loadSongObject()
+	 * This function loads a given row from the Song table into a Song object.  
+	 ********************************************************************************
+	*/
+	function loadSongObject(&$oSong, &$row)
+	{
+
+			$oSong->nSongID = $row['SONG_ID'];			
+			$oSong->sSongName = $row['SONG_NAME'];
+			$oSong->nCDID = $row['CD_ID'];
+			$oSong->nTrackNumber = $row['TRACK_NUMBER'];
+			$oSong->sSongImage = $row['SONG_IMAGE'];
+			$oSong->sSongThumbnail = $row['SONG_THUMBNAIL'];
+			$oSong->sSongDescription = $row['SONG_DESCRIPTION'];
+			$oSong->sPurchaseLink = $row['PURCHASE_LINK'];
+			$oSong->sLyricsHTML = $row['LYRICS_HTML'];
+			$oSong->sSampleMP3 = $row['SAMPLE_MP3'];
+			$oSong->dtReleaseDate = $row['RELEASE_DATE'];
+			$oSong->sRunTime = $row['RUN_TIME'];
+			$oSong->sISRC = $row['ISRC'];
+			$oSong->sCatalogNumber = $row['CATALOG_NUMBER'];
+			$oSong->sUPC = $row['UPC'];
+			$oSong->nArtistID = $row['ARTIST_ID'];
+			$oSong->nBMINumber = $row['BMI_NUMBER'];
+			$oSong->bActive = $row['ACTIVE'];
+			$oSong->dtLastUpdate= $row['LAST_UPDATE'];			
+	}
+
+	/*
+	 ********************************************************************************
+	 * escapeSpecialChars()
+	 * This function escapes any special characters in the objects properties
+	 * prior to a DB update.  The DB connection must be established prior to 
+	 * calling this function.  
+	 ********************************************************************************
+	*/
+	function escapeSpecialChars()
+	{
+		$this->sSongName = mysqli_real_escape_string($this->DB->dbConnection,$this->sSongName);	
+		$this->sSongDescription = mysqli_real_escape_string($this->DB->dbConnection,$this->sSongDescription);	
+
+	}
+
+}
+	
+?>
