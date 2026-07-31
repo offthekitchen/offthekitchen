@@ -76,6 +76,26 @@ class PerformanceRepository
 	}
 
 	/**
+	 * Distinct past performance locations (legacy getDistinctPerformanceLocations).
+	 * @return array<int, array{LOCATION:string,LOCATION_CITY:string,LOCATION_STATE:string}>
+	 */
+	public function findDistinctLocations(bool $adultShow = true): array
+	{
+		$sql = 'SELECT DISTINCT LOCATION, LOCATION_CITY, LOCATION_STATE
+		          FROM PERFORMANCE
+		         WHERE PERFORMANCE_DATE < CURRENT_DATE
+		           AND ADULT_SHOW = :adultShow
+		         ORDER BY LOCATION';
+		$stmt = $this->db->prepare($sql);
+		$stmt->execute([':adultShow' => $adultShow ? 1 : 0]);
+		$locations = [];
+		while ($row = $stmt->fetch()) {
+			$locations[] = $row;
+		}
+		return $locations;
+	}
+
+	/**
 	 * Flexible search used by admin maintenance and public pages.
 	 * If id is set, only the primary key is used (legacy getPerformance behavior).
 	 *
