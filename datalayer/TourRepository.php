@@ -88,9 +88,11 @@ class TourRepository
 		}
 
 		if (!empty($criteria['includeDate'])) {
-			$sql .= ' AND TOUR_START_DATE <= :includeDate';
-			$sql .= ' AND TOUR_END_DATE >= :includeDate';
-			$params[':includeDate'] = $criteria['includeDate'];
+			// Native PDO prepares disallow reusing the same named placeholder twice.
+			$sql .= ' AND TOUR_START_DATE <= :includeDateStart';
+			$sql .= ' AND TOUR_END_DATE >= :includeDateEnd';
+			$params[':includeDateStart'] = $criteria['includeDate'];
+			$params[':includeDateEnd'] = $criteria['includeDate'];
 		}
 
 		if (!empty($criteria['notes'])) {
