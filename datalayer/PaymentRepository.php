@@ -184,6 +184,47 @@ class PaymentRepository
 	}
 
 	/**
+	 * Payment validation errors for the admin Error Report.
+	 *
+	 * @return array<int, array{recordId: int, recordDesc: string, errorDesc: string, severity: int}>
+	 */
+	public function findPaymentErrors(): array
+	{
+		$errors = [];
+
+		$sql = 'SELECT * FROM PAYMENT
+		         WHERE PAYMENT.PAYMENT_AMOUNT <> (
+		               SELECT SUM(REVENUE.REVENUE_AMOUNT) FROM REVENUE
+		                WHERE REVENUE.PAYMENT_ID = PAYMENT.PAYMENT_ID
+		         )';
+		$stmt = $this->db->query($sql);
+		while ($row = $stmt->fetch()) {
+			$errors[] = [
+				'recordId' => (int) $row['PAYMENT_ID'],
+				'recordDesc' => 'Payment: ' . $row['PAYMENT_DESCRIPTION'] . ': $' . $row['PAYMENT_AMOUNT'],
+				'errorDesc' => 'Payment Amount does not match revenues',
+				'severity' => 3,
+			];
+		}
+
+		$sql = 'SELECT * FROM PAYMENT
+		         WHERE NOT EXISTS (
+		               SELECT * FROM REVENUE WHERE REVENUE.PAYMENT_ID = PAYMENT.PAYMENT_ID
+		         )';
+		$stmt = $this->db->query($sql);
+		while ($row = $stmt->fetch()) {
+			$errors[] = [
+				'recordId' => (int) $row['PAYMENT_ID'],
+				'recordDesc' => 'Payment: ' . $row['PAYMENT_DESCRIPTION'] . ': $' . $row['PAYMENT_AMOUNT'],
+				'errorDesc' => 'Payment has no revenues',
+				'severity' => 3,
+			];
+		}
+
+		return $errors;
+	}
+
+	/**
 	 * @return Payment[]
 	 */
 	private function hydrateAll(\PDOStatement $stmt): array

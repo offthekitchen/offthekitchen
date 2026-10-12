@@ -283,6 +283,84 @@ class RevenueRepository
 	}
 
 	/**
+	 * Revenue validation errors for the admin Error Report.
+	 *
+	 * @return array<int, array{recordId: int, recordDesc: string, errorDesc: string, severity: int}>
+	 */
+	public function findRevenueErrors(): array
+	{
+		$errors = [];
+
+		$sql = "SELECT * FROM REVENUE
+		         WHERE REVENUE.PAID_DATE = '0000-00-00'
+		            OR REVENUE.REVENUE_DATE = '0000-00-00'";
+		$stmt = $this->db->query($sql);
+		while ($row = $stmt->fetch()) {
+			$errors[] = [
+				'recordId' => (int) $row['REVENUE_ID'],
+				'recordDesc' => 'Revenue: ' . $row['REVENUE_DESCRIPTION'] . ': $' . $row['REVENUE_AMOUNT'],
+				'errorDesc' => 'Revenue date and/or paid date is 0000-00-00',
+				'severity' => 3,
+			];
+		}
+
+		$sql = 'SELECT * FROM REVENUE
+		         WHERE NOT EXISTS (
+		               SELECT * FROM PAYMENT WHERE PAYMENT.PAYMENT_ID = REVENUE.PAYMENT_ID
+		         )';
+		$stmt = $this->db->query($sql);
+		while ($row = $stmt->fetch()) {
+			$errors[] = [
+				'recordId' => (int) $row['REVENUE_ID'],
+				'recordDesc' => 'Revenue: ' . $row['REVENUE_DESCRIPTION'] . ': $' . $row['REVENUE_AMOUNT'],
+				'errorDesc' => 'Revenue has no matching payment',
+				'severity' => 3,
+			];
+		}
+
+		return $errors;
+	}
+
+	/**
+	 * Category IDs linked to a revenue via REVENUE_CATEGORY_XREF.
+	 *
+	 * @return int[]
+	 */
+	public function findCategoryIds(int $revenueId): array
+	{
+		$stmt = $this->db->prepare(
+			'SELECT CATEGORY_ID FROM REVENUE_CATEGORY_XREF WHERE REVENUE_ID = :revenueId'
+		);
+		$stmt->execute([':revenueId' => $revenueId]);
+		return array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+	}
+
+	/**
+	 * Insert a revenue/category xref row.
+	 */
+	public function insertCategoryXref(int $revenueId, int $categoryId): bool
+	{
+		$stmt = $this->db->prepare(
+			'INSERT INTO REVENUE_CATEGORY_XREF (REVENUE_ID, CATEGORY_ID) VALUES (:revenueId, :categoryId)'
+		);
+		return $stmt->execute([
+			':revenueId' => $revenueId,
+			':categoryId' => $categoryId,
+		]);
+	}
+
+	/**
+	 * Delete all category xref rows for a revenue.
+	 */
+	public function deleteCategoryXrefs(int $revenueId): bool
+	{
+		$stmt = $this->db->prepare(
+			'DELETE FROM REVENUE_CATEGORY_XREF WHERE REVENUE_ID = :revenueId'
+		);
+		return $stmt->execute([':revenueId' => $revenueId]);
+	}
+
+	/**
 	 * @return Revenue[]
 	 */
 	private function hydrateAll(\PDOStatement $stmt): array

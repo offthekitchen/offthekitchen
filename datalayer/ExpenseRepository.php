@@ -218,6 +218,45 @@ class ExpenseRepository
 	}
 
 	/**
+	 * Category IDs linked to an expense via EXPENSE_CATEGORY_XREF.
+	 *
+	 * @return int[]
+	 */
+	public function findCategoryIds(int $expenseId): array
+	{
+		$stmt = $this->db->prepare(
+			'SELECT CATEGORY_ID FROM EXPENSE_CATEGORY_XREF WHERE EXPENSE_ID = :expenseId'
+		);
+		$stmt->execute([':expenseId' => $expenseId]);
+		return array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+	}
+
+	/**
+	 * Insert an expense/category xref row.
+	 */
+	public function insertCategoryXref(int $expenseId, int $categoryId): bool
+	{
+		$stmt = $this->db->prepare(
+			'INSERT INTO EXPENSE_CATEGORY_XREF (EXPENSE_ID, CATEGORY_ID) VALUES (:expenseId, :categoryId)'
+		);
+		return $stmt->execute([
+			':expenseId' => $expenseId,
+			':categoryId' => $categoryId,
+		]);
+	}
+
+	/**
+	 * Delete all category xref rows for an expense.
+	 */
+	public function deleteCategoryXrefs(int $expenseId): bool
+	{
+		$stmt = $this->db->prepare(
+			'DELETE FROM EXPENSE_CATEGORY_XREF WHERE EXPENSE_ID = :expenseId'
+		);
+		return $stmt->execute([':expenseId' => $expenseId]);
+	}
+
+	/**
 	 * @return Expense[]
 	 */
 	private function hydrateAll(\PDOStatement $stmt): array

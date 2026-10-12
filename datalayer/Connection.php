@@ -22,7 +22,10 @@ class Connection
 	public static function getPdo(): PDO
 	{
 		if (self::$pdo === null) {
-			$dsn = 'mysql:host=' . DB_HOST . ';dbname=' . DB_NAME . ';charset=utf8mb4';
+			// Legacy tables are latin1 but contain UTF-8 bytes (the old mysqli
+			// layer never set a connection charset). charset=utf8mb4 makes MySQL
+			// convert those bytes a second time and garbles Icelandic text.
+			$dsn = 'mysql:host=' . DB_HOST . ';dbname=' . DB_NAME . ';charset=latin1';
 
 			try {
 				self::$pdo = new PDO($dsn, DB_LOGIN, DB_PASSWORD, [
