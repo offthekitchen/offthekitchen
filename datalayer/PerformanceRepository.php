@@ -96,6 +96,24 @@ class PerformanceRepository
 	}
 
 	/**
+	 * Distinct performance years ascending (legacy getDistinctPerformanceYears).
+	 *
+	 * @return int[]
+	 */
+	public function findDistinctYears(): array
+	{
+		$sql = 'SELECT DISTINCT YEAR(PERFORMANCE_DATE) AS PERFORMANCE_YEAR
+		          FROM PERFORMANCE
+		         ORDER BY PERFORMANCE_YEAR ASC';
+		$stmt = $this->db->query($sql);
+		$years = [];
+		while ($row = $stmt->fetch()) {
+			$years[] = (int) $row['PERFORMANCE_YEAR'];
+		}
+		return $years;
+	}
+
+	/**
 	 * Flexible search used by admin maintenance and public pages.
 	 * If id is set, only the primary key is used (legacy getPerformance behavior).
 	 *
