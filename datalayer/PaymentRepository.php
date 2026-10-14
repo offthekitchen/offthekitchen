@@ -43,7 +43,7 @@ class PaymentRepository
 	 * If id is set, only the primary key is used (legacy getPayment behavior).
 	 *
 	 * Supported keys: id, paymentDate, paymentYear, startDate, endDate, description,
-	 * fuzzyName, amount, vendorId, purchaseOrder, checkNumber, invoice
+	 * fuzzyName, amount, vendorId, vendorUnassigned, purchaseOrder, checkNumber, invoice
 	 *
 	 * @return Payment[]
 	 */
@@ -96,7 +96,9 @@ class PaymentRepository
 			$params[':amount'] = $criteria['amount'];
 		}
 
-		if (!empty($criteria['vendorId'])) {
+		if (!empty($criteria['vendorUnassigned'])) {
+			$sql .= ' AND VENDOR_ID IS NULL';
+		} elseif (!empty($criteria['vendorId'])) {
 			$sql .= ' AND VENDOR_ID = :vendorId';
 			$params[':vendorId'] = (int) $criteria['vendorId'];
 		}

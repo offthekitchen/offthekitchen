@@ -12,7 +12,7 @@ use PDO;
 
 class VendorRepository
 {
-	private const SELECT_COLUMNS = 'VENDOR_ID, VENDOR_NAME, LAST_UPDATE';
+	private const SELECT_COLUMNS = 'VENDOR_ID, VENDOR_NAME, ACTIVE, LAST_UPDATE';
 
 	private PDO $db;
 
@@ -41,7 +41,9 @@ class VendorRepository
 	 * Flexible search used by admin maintenance.
 	 * If id is set, only the primary key is used (legacy getVendor behavior).
 	 *
-	 * Supported keys: id, name, fuzzyName
+	 * Supported keys: id, name, fuzzyName, active, includeId
+	 * - active: when set, filter ACTIVE = that value (0 or 1)
+	 * - includeId: with active, also include this VENDOR_ID (e.g. current inactive selection)
 	 *
 	 * @return Vendor[]
 	 */
@@ -69,6 +71,18 @@ class VendorRepository
 			}
 		}
 
+		if (array_key_exists('active', $criteria) && $criteria['active'] !== null && $criteria['active'] !== '') {
+			$includeId = isset($criteria['includeId']) ? (int) $criteria['includeId'] : 0;
+			if ($includeId > 0) {
+				$sql .= ' AND (ACTIVE = :active OR VENDOR_ID = :includeId)';
+				$params[':active'] = (int) $criteria['active'];
+				$params[':includeId'] = $includeId;
+			} else {
+				$sql .= ' AND ACTIVE = :active';
+				$params[':active'] = (int) $criteria['active'];
+			}
+		}
+
 		$sql .= ' ORDER BY VENDOR_NAME';
 
 		$stmt = $this->db->prepare($sql);
@@ -82,11 +96,14 @@ class VendorRepository
 	 */
 	public function insert(Vendor $entity): bool
 	{
-		$sql = 'INSERT INTO VENDOR (VENDOR_NAME, LAST_UPDATE)
-		        VALUES (:name, SYSDATE())';
+		$sql = 'INSERT INTO VENDOR (VENDOR_NAME, ACTIVE, LAST_UPDATE)
+		        VALUES (:name, :active, SYSDATE())';
 
 		$stmt = $this->db->prepare($sql);
-		$ok = $stmt->execute([':name' => $entity->name]);
+		$ok = $stmt->execute([
+			':name' => $entity->name,
+			':active' => (int) ($entity->active ?? 0),
+		]);
 
 		if ($ok) {
 			$entity->id = (int) $this->db->lastInsertId();
@@ -105,12 +122,14 @@ class VendorRepository
 
 		$sql = 'UPDATE VENDOR
 		           SET VENDOR_NAME = :name,
+		               ACTIVE = :active,
 		               LAST_UPDATE = SYSDATE()
 		         WHERE VENDOR_ID = :id';
 
 		$stmt = $this->db->prepare($sql);
 		return $stmt->execute([
 			':name' => $entity->name,
+			':active' => (int) ($entity->active ?? 0),
 			':id' => $entity->id,
 		]);
 	}
