@@ -44,8 +44,8 @@ class ExpenseRepository
 	 *
 	 * Supported keys: id, expenseDate, expenseYear, startDate, endDate, description,
 	 * fuzzyName, expenseAmount, tourId, excludeTourId, productId, vendorId,
-	 * vendorUnassigned, taxCategoryId, categoryIds, performanceRelated,
-	 * performanceCategoryId
+	 * vendorUnassigned, taxCategoryId, taxCategoryUnassigned, categoryIds,
+	 * performanceRelated, performanceCategoryId
 	 *
 	 * @return Expense[]
 	 */
@@ -135,7 +135,9 @@ class ExpenseRepository
 			$params[':vendorId'] = (int) $criteria['vendorId'];
 		}
 
-		if (!empty($criteria['taxCategoryId'])) {
+		if (!empty($criteria['taxCategoryUnassigned'])) {
+			$sql .= ' AND TAX_CATEGORY_ID IS NULL';
+		} elseif (!empty($criteria['taxCategoryId'])) {
 			$sql .= ' AND TAX_CATEGORY_ID = :taxCategoryId';
 			$params[':taxCategoryId'] = (int) $criteria['taxCategoryId'];
 		}

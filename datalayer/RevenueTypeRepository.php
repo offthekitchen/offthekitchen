@@ -12,7 +12,7 @@ use PDO;
 
 class RevenueTypeRepository
 {
-	private const SELECT_COLUMNS = 'REVENUE_TYPE_ID, REVENUE_TYPE_NAME, LAST_UPDATE';
+	private const SELECT_COLUMNS = 'REVENUE_TYPE_ID, REVENUE_TYPE_NAME, ACTIVE, LAST_UPDATE';
 
 	private PDO $db;
 
@@ -41,7 +41,7 @@ class RevenueTypeRepository
 	 * Flexible search used by admin maintenance.
 	 * If id is set, only the primary key is used (legacy getRevenueType behavior).
 	 *
-	 * Supported keys: id, name, fuzzyName
+	 * Supported keys: id, name, fuzzyName, active, includeId
 	 *
 	 * @return RevenueType[]
 	 */
@@ -69,6 +69,18 @@ class RevenueTypeRepository
 			}
 		}
 
+		if (array_key_exists('active', $criteria) && $criteria['active'] !== null && $criteria['active'] !== '') {
+			$includeId = isset($criteria['includeId']) ? (int) $criteria['includeId'] : 0;
+			if ($includeId > 0) {
+				$sql .= ' AND (ACTIVE = :active OR REVENUE_TYPE_ID = :includeId)';
+				$params[':active'] = (int) $criteria['active'];
+				$params[':includeId'] = $includeId;
+			} else {
+				$sql .= ' AND ACTIVE = :active';
+				$params[':active'] = (int) $criteria['active'];
+			}
+		}
+
 		$sql .= ' ORDER BY REVENUE_TYPE_NAME';
 
 		$stmt = $this->db->prepare($sql);
@@ -82,11 +94,14 @@ class RevenueTypeRepository
 	 */
 	public function insert(RevenueType $entity): bool
 	{
-		$sql = 'INSERT INTO REVENUE_TYPE (REVENUE_TYPE_NAME, LAST_UPDATE)
-		        VALUES (:name, SYSDATE())';
+		$sql = 'INSERT INTO REVENUE_TYPE (REVENUE_TYPE_NAME, ACTIVE, LAST_UPDATE)
+		        VALUES (:name, :active, SYSDATE())';
 
 		$stmt = $this->db->prepare($sql);
-		$ok = $stmt->execute([':name' => $entity->name]);
+		$ok = $stmt->execute([
+			':name' => $entity->name,
+			':active' => (int) ($entity->active ?? 0),
+		]);
 
 		if ($ok) {
 			$entity->id = (int) $this->db->lastInsertId();
@@ -105,12 +120,14 @@ class RevenueTypeRepository
 
 		$sql = 'UPDATE REVENUE_TYPE
 		           SET REVENUE_TYPE_NAME = :name,
+		               ACTIVE = :active,
 		               LAST_UPDATE = SYSDATE()
 		         WHERE REVENUE_TYPE_ID = :id';
 
 		$stmt = $this->db->prepare($sql);
 		return $stmt->execute([
 			':name' => $entity->name,
+			':active' => (int) ($entity->active ?? 0),
 			':id' => $entity->id,
 		]);
 	}

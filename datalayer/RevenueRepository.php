@@ -45,7 +45,7 @@ class RevenueRepository
 	 *
 	 * Supported keys: id, revenueDate, paidDate, revenueYear, paidYear, startDate,
 	 * endDate, description, fuzzyName, amount, paymentId, excludePaymentId,
-	 * revenueTypeId, performanceId, excludePerformanceId, performanceRelated,
+	 * revenueTypeId, revenueTypeUnassigned, performanceId, excludePerformanceId, performanceRelated,
 	 * coloradoRevenue, elPasoRevenue, charitable, resale, productId, productQty,
 	 * artistId, categoryIds, includeProductInfo
 	 *
@@ -132,7 +132,9 @@ class RevenueRepository
 			$params[':excludePaymentId'] = (int) $criteria['excludePaymentId'];
 		}
 
-		if (!empty($criteria['revenueTypeId'])) {
+		if (!empty($criteria['revenueTypeUnassigned'])) {
+			$sql .= ' AND REVENUE.REVENUE_TYPE_ID IS NULL';
+		} elseif (!empty($criteria['revenueTypeId'])) {
 			$sql .= ' AND REVENUE.REVENUE_TYPE_ID = :revenueTypeId';
 			$params[':revenueTypeId'] = (int) $criteria['revenueTypeId'];
 		}
