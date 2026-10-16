@@ -13,7 +13,7 @@ use PDO;
 class CategoryRepository
 {
 	private const SELECT_COLUMNS = 'CATEGORY_ID, CATEGORY_NAME, EXPENSE_RELATED,
-		REVENUE_RELATED, LAST_UPDATE';
+		REVENUE_RELATED, ACTIVE, LAST_UPDATE';
 
 	private PDO $db;
 
@@ -42,7 +42,8 @@ class CategoryRepository
 	 * Flexible search used by admin maintenance and public pages.
 	 * If id is set, only the primary key is used (legacy getCategory behavior).
 	 *
-	 * Supported keys: id, name, fuzzyName, expenseRelated, revenueRelated
+	 * Supported keys: id, name, fuzzyName, expenseRelated, revenueRelated,
+	 * active, includeId, includeIds
 	 *
 	 * @return Category[]
 	 */
@@ -80,6 +81,35 @@ class CategoryRepository
 			$params[':revenueRelated'] = $criteria['revenueRelated'] ? 1 : 0;
 		}
 
+		if (array_key_exists('active', $criteria) && $criteria['active'] !== null && $criteria['active'] !== '') {
+			$includeIds = [];
+			if (!empty($criteria['includeIds']) && is_array($criteria['includeIds'])) {
+				foreach ($criteria['includeIds'] as $includeId) {
+					if ((int) $includeId > 0) {
+						$includeIds[] = (int) $includeId;
+					}
+				}
+			}
+			if (!empty($criteria['includeId']) && (int) $criteria['includeId'] > 0) {
+				$includeIds[] = (int) $criteria['includeId'];
+			}
+			$includeIds = array_values(array_unique($includeIds));
+
+			if (!empty($includeIds)) {
+				$placeholders = [];
+				foreach ($includeIds as $index => $includeId) {
+					$param = ':includeId' . $index;
+					$placeholders[] = $param;
+					$params[$param] = $includeId;
+				}
+				$sql .= ' AND (ACTIVE = :active OR CATEGORY_ID IN (' . implode(', ', $placeholders) . '))';
+				$params[':active'] = (int) $criteria['active'];
+			} else {
+				$sql .= ' AND ACTIVE = :active';
+				$params[':active'] = (int) $criteria['active'];
+			}
+		}
+
 		$sql .= ' ORDER BY CATEGORY_NAME';
 
 		$stmt = $this->db->prepare($sql);
@@ -94,9 +124,9 @@ class CategoryRepository
 	public function insert(Category $entity): bool
 	{
 		$sql = 'INSERT INTO CATEGORY (
-		            CATEGORY_NAME, EXPENSE_RELATED, REVENUE_RELATED, LAST_UPDATE
+		            CATEGORY_NAME, EXPENSE_RELATED, REVENUE_RELATED, ACTIVE, LAST_UPDATE
 		        ) VALUES (
-		            :name, :expenseRelated, :revenueRelated, NOW()
+		            :name, :expenseRelated, :revenueRelated, :active, NOW()
 		        )';
 
 		$stmt = $this->db->prepare($sql);
@@ -104,6 +134,7 @@ class CategoryRepository
 			':name' => $entity->name,
 			':expenseRelated' => $entity->expenseRelated ? 1 : 0,
 			':revenueRelated' => $entity->revenueRelated ? 1 : 0,
+			':active' => (int) ($entity->active ?? 0),
 		]);
 
 		if ($ok) {
@@ -125,6 +156,7 @@ class CategoryRepository
 		           SET CATEGORY_NAME = :name,
 		               EXPENSE_RELATED = :expenseRelated,
 		               REVENUE_RELATED = :revenueRelated,
+		               ACTIVE = :active,
 		               LAST_UPDATE = NOW()
 		         WHERE CATEGORY_ID = :id';
 
@@ -133,6 +165,7 @@ class CategoryRepository
 			':name' => $entity->name,
 			':expenseRelated' => $entity->expenseRelated ? 1 : 0,
 			':revenueRelated' => $entity->revenueRelated ? 1 : 0,
+			':active' => (int) ($entity->active ?? 0),
 			':id' => $entity->id,
 		]);
 	}
