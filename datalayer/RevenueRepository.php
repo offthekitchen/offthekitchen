@@ -287,9 +287,10 @@ class RevenueRepository
 	/**
 	 * Revenue validation errors for the admin Error Report.
 	 *
+	 * @param int|null $royaltyRevenueTypeId Optional REVENUE_TYPE_ID for royalty (e.g. site REVENUE_TYPE_ROYALTY)
 	 * @return array<int, array{recordId: int, recordDesc: string, errorDesc: string, severity: int}>
 	 */
-	public function findRevenueErrors(): array
+	public function findRevenueErrors(?int $royaltyRevenueTypeId = null): array
 	{
 		$errors = [];
 
@@ -318,6 +319,22 @@ class RevenueRepository
 				'errorDesc' => 'Revenue has no matching payment',
 				'severity' => 3,
 			];
+		}
+
+		if ($royaltyRevenueTypeId !== null && $royaltyRevenueTypeId > 0) {
+			$sql = 'SELECT * FROM REVENUE
+			         WHERE REVENUE_TYPE_ID = :royaltyTypeId
+			           AND PRODUCT_QTY IS NOT NULL';
+			$stmt = $this->db->prepare($sql);
+			$stmt->execute([':royaltyTypeId' => $royaltyRevenueTypeId]);
+			while ($row = $stmt->fetch()) {
+				$errors[] = [
+					'recordId' => (int) $row['REVENUE_ID'],
+					'recordDesc' => 'Revenue: ' . $row['REVENUE_DESCRIPTION'] . ': $' . $row['REVENUE_AMOUNT'],
+					'errorDesc' => 'Royalty revenue should not have a quantity',
+					'severity' => 3,
+				];
+			}
 		}
 
 		return $errors;
