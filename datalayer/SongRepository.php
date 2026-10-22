@@ -109,7 +109,7 @@ class SongRepository
 	 * If id is set, only the primary key is used (legacy getSong behavior).
 	 *
 	 * Supported keys: id, name, fuzzyName, cdId, trackNumber, artistId,
-	 * active, displayOnSite, orderBy (name|track|update|release)
+	 * iswc, active, displayOnSite, orderBy (name|track|update|release)
 	 *
 	 * @return Song[]
 	 */
@@ -164,6 +164,12 @@ class SongRepository
 		if (array_key_exists('displayOnSite', $criteria) && $criteria['displayOnSite'] !== null) {
 			$sql .= ' AND DISPLAY_ON_SITE = :displayOnSite';
 			$params[':displayOnSite'] = $criteria['displayOnSite'] ? 1 : 0;
+		}
+
+		$iswc = trim((string) ($criteria['iswc'] ?? ''));
+		if ($iswc !== '') {
+			$sql .= ' AND UPPER(TRIM(ISWC)) = UPPER(:iswc)';
+			$params[':iswc'] = $iswc;
 		}
 
 		$orderBy = $criteria['orderBy'] ?? 'track';
