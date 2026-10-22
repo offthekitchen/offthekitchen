@@ -28,6 +28,7 @@ class Song
 	public ?bool $active = null;
 	public ?bool $displayOnSite = null;
 	public int $bmiNumber = 0;
+	public ?string $iswc = null;
 	public ?int $artistId = null;
 	public ?string $lastUpdate = null;
 
@@ -57,6 +58,7 @@ class Song
 		$entity->active = isset($row['ACTIVE']) ? (bool) $row['ACTIVE'] : null;
 		$entity->displayOnSite = isset($row['DISPLAY_ON_SITE']) ? (bool) $row['DISPLAY_ON_SITE'] : null;
 		$entity->bmiNumber = isset($row['BMI_NUMBER']) ? (int) $row['BMI_NUMBER'] : 0;
+		$entity->iswc = $row['ISWC'] ?? null;
 		$entity->artistId = isset($row['ARTIST_ID']) && $row['ARTIST_ID'] !== null && $row['ARTIST_ID'] !== ''
 			? (int) $row['ARTIST_ID']
 			: null;

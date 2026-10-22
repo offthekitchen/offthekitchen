@@ -15,7 +15,7 @@ class SongRepository
 	private const SELECT_COLUMNS = 'SONG_ID, CD_ID, TRACK_NUMBER, SONG_NAME, SONG_IMAGE,
 		SONG_THUMBNAIL, SONG_DESCRIPTION, PURCHASE_LINK, LYRICS_HTML, SAMPLE_MP3,
 		RELEASE_DATE, RUN_TIME, ISRC, CATALOG_NUMBER, UPC, ARTIST_ID, BMI_NUMBER,
-		ACTIVE, DISPLAY_ON_SITE, LAST_UPDATE';
+		ISWC, ACTIVE, DISPLAY_ON_SITE, LAST_UPDATE';
 
 	private PDO $db;
 
@@ -184,12 +184,12 @@ class SongRepository
 		            SONG_NAME, CD_ID, TRACK_NUMBER, SONG_IMAGE, SONG_THUMBNAIL,
 		            SONG_DESCRIPTION, PURCHASE_LINK, LYRICS_HTML, RELEASE_DATE,
 		            RUN_TIME, ISRC, CATALOG_NUMBER, UPC, ARTIST_ID, SAMPLE_MP3,
-		            BMI_NUMBER, ACTIVE, DISPLAY_ON_SITE, LAST_UPDATE
+		            BMI_NUMBER, ISWC, ACTIVE, DISPLAY_ON_SITE, LAST_UPDATE
 		        ) VALUES (
 		            :name, :cdId, :trackNumber, :image, :thumbnail,
 		            :description, :purchaseLink, :lyricsHtml, :releaseDate,
 		            :runTime, :isrc, :catalogNumber, :upc, :artistId, :sampleMp3,
-		            :bmiNumber, :active, :displayOnSite, SYSDATE()
+		            :bmiNumber, :iswc, :active, :displayOnSite, SYSDATE()
 		        )';
 
 		$stmt = $this->db->prepare($sql);
@@ -227,6 +227,7 @@ class SongRepository
 		               UPC = :upc,
 		               ARTIST_ID = :artistId,
 		               BMI_NUMBER = :bmiNumber,
+		               ISWC = :iswc,
 		               ACTIVE = :active,
 		               DISPLAY_ON_SITE = :displayOnSite,
 		               LAST_UPDATE = SYSDATE()
@@ -290,6 +291,7 @@ class SongRepository
 			':artistId' => $entity->artistId,
 			':sampleMp3' => $entity->sampleMp3,
 			':bmiNumber' => $entity->bmiNumber,
+			':iswc' => $entity->iswc ?? '',
 			':active' => $entity->active ? 1 : 0,
 			':displayOnSite' => $entity->displayOnSite ? 1 : 0,
 		];
